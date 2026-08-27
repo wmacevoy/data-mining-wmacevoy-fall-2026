@@ -1,6 +1,7 @@
 # --- pixi ---------------------------------------------------------------
-# The solved environments. Recreated from pixi.lock by `pixi install`.
-# NOTE: pixi.lock itself IS committed -- it is what makes every machine match.
+# The solved environments, rebuilt by `pixi install` from pixi.toml.
+# NOTE: pixi.lock is NOT committed -- see README section 3. It is left
+# untracked rather than ignored, so a deliberate `git add` still works.
 .pixi/
 
 # --- derived data -------------------------------------------------------
@@ -145,7 +146,8 @@ ipython_config.py
 .pdm-build/
 
 # pixi
-#   Similar to Pipfile.lock, it is generally recommended to include pixi.lock in version control.
+#   The upstream template recommends committing pixi.lock. This course does not --
+#   see README section 3 for why. Left untracked, not ignored.
 # pixi.lock
 #   Pixi creates a virtual environment in the .pixi directory, just like venv module creates one
 #   in the .venv directory. It is recommended not to include this directory in version control.

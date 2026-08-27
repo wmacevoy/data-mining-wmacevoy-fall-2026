@@ -2,6 +2,10 @@
 
 Course projects for Data Mining at Colorado Mesa University.
 
+**[`DATA-SCIENCE.md`](DATA-SCIENCE.md) is why this repository is shaped the way it is** — what the
+course thinks the discipline is, and what makes a claim worth acting on. This file is the mechanics:
+how to install and run things.
+
 Everything in this repository is run through **[pixi](https://pixi.prefix.dev)**.
 There is one command to set up and one command to run. There is no `conda
 activate`, no `.venv` to source, no `setup.sh`, and **no WSL requirement** —
@@ -58,7 +62,7 @@ cd data-mining-wmacevoy-fall-2026
 pixi install
 ```
 
-That last command reads `pixi.lock` and builds an environment under `.pixi/`.
+That last command solves `pixi.toml` and builds an environment under `.pixi/`.
 It installs about 200 packages and occupies roughly 775 MB. On a warm cache it
 finishes in seconds; a cold first run took about 12 seconds on an M-series Mac.
 You never activate this environment and you never edit it.
@@ -124,16 +128,28 @@ Pixi is the same idea with the drift designed out:
 | `context.sh` conda-prefix helpers | built in |
 | `.venv/` via `conda create -p` | `.pixi/envs/` |
 | `environment.yml` + `requirements.txt` (which disagreed) | one `[dependencies]` table |
-| **nothing** | **`pixi.lock`** |
 | `jq` required to read `config.json` | not required |
 | bash required → WSL on Windows | native PowerShell |
 
 Two things are worth calling out:
 
-**The lockfile is the actual fix.** `pixi.lock` records exact, resolved
-versions for `osx-arm64`, `osx-64`, `linux-64`, and `win-64`. Your laptop, the
-grader's laptop, and CI install byte-identical package sets. It is committed to
-git on purpose. Never add it to `.gitignore`.
+**One dependency table is the actual fix.** The old setup had
+`environment.yml` and `requirements.txt` disagreeing with each other, and
+neither was pinned meaningfully. Now there is one `[dependencies]` table with
+real version constraints, and `pixi install` solves it for your platform.
+
+**On `pixi.lock`.** Pixi writes one, and this repo does **not** commit it. That
+is deliberate. A committed lock pins exact builds, which is the right call for
+a deployed service and the wrong one for a course: it solves per-platform, it
+goes stale over a fifteen-week semester, and a build yanked from the channel in
+October breaks every student at once with no way forward. Instead everyone
+solves fresh from `pixi.toml`, and the constraints there are what keep you in
+range. The tradeoff is real and worth naming: two students may end up on
+slightly different patch versions. If a result ever depends on which, that is a
+finding about the result — see [`DATA-SCIENCE.md`](DATA-SCIENCE.md) on
+provenance.
+
+Your local `pixi.lock` is untracked, not ignored. Leave it alone; it is yours.
 
 **No bash means no WSL.** The old wrappers were shell scripts, which is what
 forced Windows students onto WSL for what is otherwise a pure-Python project.
@@ -186,18 +202,27 @@ Then `pixi install` and `pixi run -e houses train`.
 
 ### Changing dependencies
 
-Edit `pixi.toml` (or use `pixi add <package>`), then commit **both**
-`pixi.toml` and the regenerated `pixi.lock`. A pull request that changes one
-without the other will fail CI.
+Edit `pixi.toml` (or use `pixi add <package>`) and commit `pixi.toml`. Do not
+commit `pixi.lock`.
+
+Because there is no lock, **the constraints in `pixi.toml` are the only pinning
+this repo has**, so write real ones. The baseline already bounds both ends
+(`pandas = ">=2.2,<3"`, `numpy = ">=1.26,<3"`, `python = "3.12.*"`); the
+per-project extras are lower-bound only, which is where a major release
+upstream could break a build mid-semester. If that happens, the fix is an upper
+bound in `pixi.toml`, not a lockfile. CI will tell you on all three platforms
+whether your change still solves.
 
 ---
 
 ## 5. Continuous integration
 
 `.github/workflows/ci.yaml` runs lint and tests on **Ubuntu, macOS, and
-Windows** for every push. It passes `locked: true`, so the build fails if
-`pixi.lock` has fallen out of step with `pixi.toml` instead of quietly
-re-solving.
+Windows** for every push. It passes no `locked:` and no `cache:` — both of those
+require a committed `pixi.lock`, and `cache: true` is a hard error without one
+because it builds its cache key by hashing that file. So every run solves
+`pixi.toml` from scratch, which is exactly what happens on a student's first
+`pixi install`. CI tests the experience you actually have.
 
 The Windows leg is not decoration. It is how we find out that a dependency
 lacks a `win-64` build in week one rather than the night before an assignment
@@ -212,8 +237,8 @@ Close and reopen your terminal. The installer adds pixi to your `PATH` in your
 shell profile, which only takes effect in new shells.
 
 **"lockfile is out of date"**
-Someone changed `pixi.toml` without regenerating the lock. Run `pixi install`
-and commit the updated `pixi.lock`.
+Your local `pixi.lock` no longer matches `pixi.toml`. Run `pixi install` to
+re-solve. Nothing needs committing — the lock is not tracked.
 
 **The dashboard does not open a browser tab by itself**
 That is intentional — see `colorado_river/.streamlit/config.toml`. Click the
