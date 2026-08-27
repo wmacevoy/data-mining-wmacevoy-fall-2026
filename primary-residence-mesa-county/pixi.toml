@@ -1,0 +1,31 @@
+[project]
+name = "primary-residence-mesa-county"
+version = "0.1.0"
+description = "Parcel-level owner-occupancy proxy from Mesa County assessor data"
+channels = ["conda-forge"]
+platforms = ["osx-arm64", "osx-64", "linux-64"]
+
+[dependencies]
+python = ">=3.11,<3.14"
+pandas = ">=2.0"
+pyarrow = ">=14"          # parquet output
+pytest = ">=7.0"
+
+# Optional cross-check of the hand-rolled normalizer against USPS Pub 28.
+# Not required by the pipeline; see README.
+[feature.crosscheck.pypi-dependencies]
+usaddress = "*"
+usaddress-scourgify = "*"
+
+[environments]
+crosscheck = ["crosscheck"]
+
+[tasks]
+count = "python run.py count"
+fetch = "python run.py fetch"
+build = "python run.py build"
+all   = "python run.py all"
+test  = "pytest"          # config in pytest.ini (adds root to sys.path)
+
+# Small pull for iterating on the matching logic.
+dev-fetch = "python run.py fetch --limit 2000"
