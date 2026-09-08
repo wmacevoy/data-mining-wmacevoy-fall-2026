@@ -33,6 +33,20 @@ FIELDS = [
     "NBHD", "NBDESC", "SDATE", "TOTVALCUR", "Acres",
 ]
 
+# Layer 2 of the same service: one point per parcel, and -- usefully -- it
+# carries LATITUDE / LONGITUDE / UTM12_X / UTM12_Y as ordinary attribute
+# fields, so location needs no geometry parsing and no reprojection.
+POINTS_URL = (
+    "https://mcgis.mesacounty.us/arcgis/rest/services"
+    "/maps/ParcelPointQuery/MapServer/2"
+)
+
+POINT_FIELDS = [
+    "ACCOUNTNO", "PARCEL_NUM",
+    "LATITUDE", "LONGITUDE",   # WGS84, for anything that wants degrees
+    "UTM12_X", "UTM12_Y",      # metres, for anything that wants distance
+]
+
 WHERE = "1=1"           # override on the command line with --where
 PAGE_SIZE = 1000        # ArcGIS maxRecordCount is typically 1000-2000
 ORDER_BY = "OBJECTID"   # REQUIRED: offset paging is only stable if sorted
@@ -40,6 +54,7 @@ ORDER_BY = "OBJECTID"   # REQUIRED: offset paging is only stable if sorted
 ROOT = Path(__file__).resolve().parent.parent
 CACHE_DIR = ROOT / "cache"
 RAW_DIR = CACHE_DIR / "raw"
+POINTS_DIR = CACHE_DIR / "points"
 OUT_DIR = ROOT / "out"
 
 # Situs values are Mesa County; anything else in the mailing column is

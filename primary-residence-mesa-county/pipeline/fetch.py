@@ -115,6 +115,65 @@ def fetch_all(where: str = None, page_size: int = None,
     return manifest
 
 
+def fetch_points(refresh: bool = False, limit: int = None) -> int:
+    """Pull layer 2 (parcel points) into cache/points/, one file per page.
+
+    Same paging and same cache discipline as `fetch_all`; kept separate
+    because it is a different layer with a different field list, and
+    because the match pipeline runs fine without it -- only the map needs
+    coordinates.
+    """
+    config.POINTS_DIR.mkdir(parents=True, exist_ok=True)
+    total = _request(f"{config.POINTS_URL}/query",
+                     {"where": "1=1", "returnCountOnly": "true", "f": "json"})["count"]
+    if limit:
+        total = min(total, limit)
+    print(f"[points] {total} parcel points")
+
+    offset = 0
+    while offset < total:
+        path = config.POINTS_DIR / f"page_{offset:07d}.json"
+        if path.exists() and not refresh:
+            offset += config.PAGE_SIZE
+            continue
+        payload = _request(
+            f"{config.POINTS_URL}/query",
+            {
+                "where": "1=1",
+                "outFields": ",".join(config.POINT_FIELDS),
+                "orderByFields": config.ORDER_BY,
+                "resultOffset": offset,
+                "resultRecordCount": config.PAGE_SIZE,
+                "returnGeometry": "false",
+                "f": "json",
+            },
+        )
+        features = payload.get("features", [])
+        path.write_text(json.dumps(payload))
+        print(f"[points] offset {offset:>7}  fetched ({len(features)} rows)")
+        if not features:
+            break
+        offset += config.PAGE_SIZE
+        time.sleep(0.25)
+    return total
+
+
+def load_points() -> list:
+    """Read the cached point pages back into a flat list of dicts.
+
+    Returns [] rather than raising when the cache is absent: the map is
+    optional, the match table is not.
+    """
+    if not config.POINTS_DIR.exists():
+        return []
+    records = []
+    for path in sorted(config.POINTS_DIR.glob("page_*.json")):
+        payload = json.loads(path.read_text())
+        for feature in payload.get("features", []):
+            records.append(feature["attributes"])
+    return records
+
+
 def load_records() -> list:
     """Read every cached page back into a flat list of attribute dicts."""
     if not config.RAW_DIR.exists():

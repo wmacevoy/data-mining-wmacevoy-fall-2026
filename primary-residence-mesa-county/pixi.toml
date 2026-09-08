@@ -10,6 +10,15 @@ python = ">=3.11,<3.14"
 pandas = ">=2.0"
 pyarrow = ">=14"          # parquet output
 pytest = ">=7.0"
+# Lower bound is deliberate, not cosmetic. streamlit 1.59.1 together with
+# pyarrow 25.0.0 segfaults in `pyarrow.pandas_compat.convert_column` while
+# Streamlit re-serialises chart data to Arrow -- non-deterministically, after
+# a handful of reruns, killing the server with no traceback and nothing on
+# screen. Reproduced on both pandas 2.3.3 and 3.0.5, so pandas is not the
+# variable; moving *either* streamlit to 1.63 or pyarrow to 25.0.1 clears it,
+# and 1.63 is the one conda-forge has.
+streamlit = ">=1.63"
+altair = ">=5.2"
 
 # Optional cross-check of the hand-rolled normalizer against USPS Pub 28.
 # Not required by the pipeline; see README.
@@ -29,3 +38,6 @@ test  = "pytest"          # config in pytest.ini (adds root to sys.path)
 
 # Small pull for iterating on the matching logic.
 dev-fetch = "python run.py fetch --limit 2000"
+
+# Interactive exploration of the built table.
+app = "streamlit run app.py"

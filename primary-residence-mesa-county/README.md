@@ -38,6 +38,140 @@ pixi run -e crosscheck python tools/crosscheck.py
 
 `requirements.txt` is kept only as a fallback for anyone without pixi.
 
+## The app
+
+`app.py` is a Streamlit view of the built table, split by property type.
+It reads `out/parcels_match.parquet` and re-scores every parcel a second
+time with `LOCATION` as the situs source instead of the
+`STRNUMBER`..`STRUNIT` components, so the two scorings sit side by side.
+That comparison is the whole point of the page: the component path drops
+the unit designator, and how much that costs depends almost entirely on
+whether a property type carries units (Residential 7%, Townhouse 52%,
+Condo 93%). See "A known defect" below.
+
+### Running it
+
+The app is a *reader*, not a stage — it will not fetch or build anything.
+Produce the table first, once:
+
+```bash
+pixi run all          # fetch + build -> out/parcels_match.parquet
+```
+
+Then, whichever of these you prefer:
+
+```bash
+pixi run app                          # the task; equivalent to the next line
+pixi run streamlit run app.py         # direct, and takes streamlit's flags
+```
+
+Or step into the environment first and drop pixi from the command
+entirely:
+
+```bash
+pixi shell
+streamlit run app.py
+```
+
+Without pixi at all:
+
+```bash
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+streamlit run app.py
+```
+
+Any of these opens a browser at <http://localhost:8501>. `Ctrl-C` in the
+terminal stops the server.
+
+The flags worth knowing. All three forms take them — pixi appends
+whatever you add onto the end of the task's command line:
+
+```bash
+streamlit run app.py --server.port 8600        # 8501 already taken
+streamlit run app.py --server.headless true    # don't open a browser
+streamlit run app.py --server.address 0.0.0.0  # reachable off-machine; see below
+
+pixi run app --server.port 8600                # same thing through the task
+```
+
+`streamlit run` puts the script's own directory on `sys.path`, so the
+`from pipeline import ...` at the top of `app.py` resolves no matter
+which directory you launch from — an absolute path works fine:
+
+```bash
+streamlit run ~/projects/.../primary-residence-mesa-county/app.py
+```
+
+The first load takes a few seconds: it re-scores all 79,660 parcels the
+second way. That result is cached (`@st.cache_data`), so the filters and
+the scoring toggle are instant afterwards. Edit `app.py` while it runs and
+the page offers to re-run.
+
+`pixi.toml` pins `streamlit >= 1.63` for a reason worth knowing about.
+streamlit 1.59.1 together with pyarrow 25.0.0 **segfaults** inside
+`pyarrow.pandas_compat.convert_column`, in the step where Streamlit
+re-serialises a chart's data to Arrow. It is non-deterministic and takes a
+handful of reruns to show up, which is exactly what makes it nasty: the
+server dies outright, with no traceback and nothing on the page. It
+reproduces on pandas 2.3.3 and 3.0.5 alike, so pandas is not the variable;
+moving *either* streamlit to 1.63 or pyarrow to 25.0.1 clears it. Don't
+loosen that bound without re-running the app through a dozen reruns.
+
+**Do not bind it to `0.0.0.0` on an untrusted network.** The parcel table
+shows `OWNER` and `MAILING` — see the privacy note at the bottom of this
+file. Streamlit has no authentication; the default binding is localhost
+for a reason.
+
+## Where things are, on the ground
+
+The parcel number is a spatial address, and it checks out against layer 2's
+coordinates:
+
+```
+2435-223-00-007
+2435   township / range     6 mi x 6 mi   (measured: 5.84 x 5.86 median)
+22     section 01-36        1 mi x 1 mi   (measured: 0.96 x 0.96)
+3      quarter section      160 acres     (1=NE 2=NW 3=SW 4=SE)
+00     block
+007    parcel
+```
+
+Section numbers follow the PLSS serpentine — 1 in the north-east corner, 6
+in the north-west, 7 directly below 6, 36 in the south-east. The Grand
+Valley road grid *is* this grid: numbered roads run north-south at 1.002 mi
+per road-number step, lettered roads east-west at 0.981 mi per letter. So
+`2879 B 1/2 RD` is already a coordinate to within half a mile, and the
+fractional roads that break `usaddress` are load-bearing rather than noise.
+
+**Layer 2 of the same service** carries `LATITUDE`, `LONGITUDE`, `UTM12_X`
+and `UTM12_Y` as ordinary attribute fields — location with no geometry
+parsing and no reprojection, populated for all 79,660 records. `pixi run
+fetch` pulls it into `cache/points/`; `--no-points` skips it.
+
+### Why the map is a grid and not a group-by
+
+Mesa County is surveyed under **two** principal meridians: the 6th over most
+of the county (`SEC 22 8S 102W 6TH PM`) and the Ute over the Grand Valley
+(`T1N R2W`). Their township lines do not share a lattice, and near the join
+the county's township codes cover partial, irregular ground — of 61
+well-sampled prefixes, 24 pairs overlap once each is placed at its own
+measured origin. Grouping by the prefix gives bins that are neither
+equal-area nor disjoint.
+
+`pipeline/geo.py` therefore bins on a regular 6-mile grid anchored to where
+the survey's township lines actually fall (derived from the section offsets,
+not hardcoded). Whole, well-sampled townships land within a median 0.29 mi
+of a cell boundary, so over the valley the cells and the real townships are
+the same thing; near the meridian join they are honestly just a grid.
+
+The map colours `match / (match + no_match)`, so unknowns are out of the
+ratio. Cells where unknowns are most of the record are drawn in neutral grey
+instead: they hold the lowest ratios on the map, and that ordering is not a
+coincidence — PO-box and missing-address parcels cluster in the rural east
+and south, so dropping unknowns does not remove that bias, it concentrates
+it.
+
 ## Why the stages are separate
 
 `fetch` is the only stage that touches the network. Everything after it
@@ -132,6 +266,21 @@ a spot-check turns up a miss.
 USPS Pub 28 at the line level and would agree with this code on the grid
 roads. Worth running on a sample to see where the two disagree.
 
+## A known defect
+
+`build_situs_line()` joins the situs components with spaces, so `STRUNIT`
+lands as a bare trailing token -- `516 31 1/2 RD 50` against a mailing
+line of `516 31 1/2 RD UNIT 50`. `split_unit()` needs a keyword, so it
+never fires: it recovers the unit from the components 0.1% of the time
+and from `LOCATION` 98.1% of the time, because `LOCATION` keeps the `#`
+that `normalize_line()` already maps to `UNIT`. The documented fallback
+field is strictly better than the primary path.
+
+The cost is 4,276 parcels (5.4% of the county) scored `no_match` that
+should be `match`, and it is not spread evenly -- it lands on whatever
+has units. Manufactured homes are the extreme: of the 2,660 `M`-prefix
+accounts, the pipeline currently calls 2,548 absentee and 3 owner-occupied.
+
 ## What this measures, and what it doesn't
 
 The proxy detects **absentee ownership**, which is *not* the same as
@@ -162,13 +311,16 @@ long-term).
 ```
 pixi.toml                 per-project environment + task definitions
 run.py                    CLI entry point
-pipeline/config.py        service URL, field list, paths
-pipeline/fetch.py         stage 1 — cached paged pull
+pipeline/config.py        service URLs, field lists, paths
+pipeline/fetch.py         stage 1 — cached paged pull (layers 1 and 2)
 pipeline/addresses.py     stage 2 — normalization + match decision
 pipeline/build.py         stage 3 — assemble table, write outputs
+pipeline/geo.py           parcel number → township grid, for the map
+app.py                    streamlit view, split by property type
 tools/crosscheck.py       optional: compare against usaddress-scourgify
 tests/test_addresses.py   40 fixture tests, no network
-cache/                    raw snapshot + manifest.json  (gitignored)
+cache/raw/                parcel snapshot + manifest.json  (gitignored)
+cache/points/             parcel coordinates, layer 2      (gitignored)
 out/                      parcels_match.csv/.parquet, summary.txt
 ```
 

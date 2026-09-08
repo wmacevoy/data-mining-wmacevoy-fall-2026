@@ -30,6 +30,8 @@ def main():
                         help="re-fetch pages already in the cache")
     parser.add_argument("--residential-only", action="store_true",
                         help="keep only PROPTYPE containing RESID")
+    parser.add_argument("--no-points", action="store_true",
+                        help="skip layer 2 (coordinates); the map needs them")
     args = parser.parse_args()
 
     if args.stage == "count":
@@ -39,6 +41,8 @@ def main():
     if args.stage in ("fetch", "all"):
         fetch.fetch_all(where=args.where, page_size=args.page_size,
                         refresh=args.refresh, limit=args.limit)
+        if not args.no_points:
+            fetch.fetch_points(refresh=args.refresh, limit=args.limit)
 
     if args.stage in ("build", "all"):
         df = build_stage.build(residential_only=args.residential_only)
