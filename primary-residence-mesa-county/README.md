@@ -123,6 +123,66 @@ shows `OWNER` and `MAILING` — see the privacy note at the bottom of this
 file. Streamlit has no authentication; the default binding is localhost
 for a reason.
 
+### The value distribution
+
+The **What the properties are worth** section bins `TOTVALCUR` — the
+assessor's total actual value — into a frequency distribution, one panel
+per outcome. `TOTVALCUR` is a *valuation*, not a sale price; the parcel
+record carries no price, so this is the only money in it.
+
+Three things about that section are decisions rather than defaults:
+
+- **Linear by default, log available.** Values run from \$10 to \$21.7M but
+  the housing stock sits in about one decade around \$350k. A log axis
+  spends two of its three decades on ~2% of the parcels; a linear one puts
+  the hump where it can be read. Log is worth a look for the bottom of the
+  range, where the vacant lots and the odd records live.
+- **Count panels are scaled independently; share panels are not.** The
+  categories differ up to sevenfold in size, so a shared count axis leaves
+  the two smaller ones flat against the largest one's peak. Each count
+  panel therefore gets its own y domain — a real hazard in small
+  multiples, so every panel's subtitle carries its n and the caption says
+  outright that the heights do not compare. Switching to *share within
+  category* puts all three on one axis, which is the honest way to compare
+  shapes.
+- **\$0 parcels are off the chart, and said so loudly.** About 1,046
+  parcels carry no value at all, and they are not spread evenly: roughly
+  one in six *No answer* parcels is one of them. A \$0 assessment and a
+  cheap house are different facts, and a log axis has no room for zero
+  either, so they are counted in a callout instead of being folded into
+  the first bin.
+
+The domain stops at the half-percentiles of the priced parcels and what
+falls outside is folded into the end bins rather than dropped, so every
+parcel is still counted somewhere; the caption gives both counts.
+
+### Exporting
+
+The **Export** section at the bottom of the page writes any table on the
+page — the parcel rows, or any of the aggregates behind the charts — as
+**CSV**, **Excel** or **Parquet**. Whatever the filters, the scoring
+toggle and the outcome/search boxes currently select is what comes out,
+which is the reason it is there: the on-screen parcel table is truncated
+to 500 rows, and the export is not.
+
+Which format:
+
+| | keeps dtypes and NA | opens in | note |
+|---|---|---|---|
+| Parquet | yes, exactly | pandas, DuckDB, Spark | the one to re-open in code |
+| CSV | no — everything is text | anything | biggest file of the three |
+| Excel | approximately | Excel, Sheets, LibreOffice | header frozen and filterable |
+
+Excel is the slow one: about nine seconds for all 62k parcels with every
+column, because `.xlsx` is an XML format and every cell is an element.
+The result is cached per (table, format), so it is paid once. Sheets are
+capped at 1,048,576 rows — over that the app says so and points at the
+other two formats rather than writing a truncated file.
+
+Excel export needs a writer engine; `xlsxwriter` is in `pixi.toml` and
+`requirements.txt`. Without one (or with only `openpyxl`, which also
+works) the Excel option explains itself and CSV and Parquet still work.
+
 ## Where things are, on the ground
 
 The parcel number is a spatial address, and it checks out against layer 2's

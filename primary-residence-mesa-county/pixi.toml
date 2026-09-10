@@ -9,6 +9,7 @@ platforms = ["osx-arm64", "osx-64", "linux-64"]
 python = ">=3.11,<3.14"
 pandas = ">=2.0"
 pyarrow = ">=14"          # parquet output
+xlsxwriter = ">=3.1"      # .xlsx export from the app
 pytest = ">=7.0"
 # Lower bound is deliberate, not cosmetic. streamlit 1.59.1 together with
 # pyarrow 25.0.0 segfaults in `pyarrow.pandas_compat.convert_column` while

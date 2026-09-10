@@ -2,6 +2,8 @@ pandas>=2.0
 pytest>=7.0
 # optional: parquet output
 pyarrow>=14.0
+# optional: .xlsx export from the app
+xlsxwriter>=3.1
 # the streamlit view (app.py); not needed for the pipeline itself
 # >=1.63: 1.59 + pyarrow 25.0.0 segfaults in Arrow serialisation on rerun
 streamlit>=1.63
