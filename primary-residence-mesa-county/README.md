@@ -225,12 +225,36 @@ not hardcoded). Whole, well-sampled townships land within a median 0.29 mi
 of a cell boundary, so over the valley the cells and the real townships are
 the same thing; near the meridian join they are honestly just a grid.
 
-The map colours `match / (match + no_match)`, so unknowns are out of the
-ratio. Cells where unknowns are most of the record are drawn in neutral grey
-instead: they hold the lowest ratios on the map, and that ordering is not a
-coincidence — PO-box and missing-address parcels cluster in the rural east
-and south, so dropping unknowns does not remove that bias, it concentrates
-it.
+### What each township shows
+
+Each township on the map is a small glyph rather than a coloured tile: three
+histograms of `TOTVALCUR`, one per outcome — mails to property, mails
+elsewhere, no answer — stacked top to bottom on one shared value axis (\$0
+to the 97.5th percentile of the priced parcels in view, about \$1M, in ten
+bins), with a tick under each row at that outcome's median. A key beside the
+map draws everything in view as a single township and names the rows.
+Three things about it are decisions:
+
+- **Unknowns get a row of their own.** A rate of `match / (match +
+  no_match)` would drop them, and they are not missing at random: PO-box
+  and missing-address parcels cluster in the rural east and south, so
+  dropping them does not remove that bias, it concentrates it. In several
+  outlying townships *No answer* is the largest of the three outcomes.
+- **Shape by default, count available.** Shape scales every row to its own
+  tallest bar, so each distribution fills its row and the shapes and
+  medians compare across townships; the heights do not. One share axis for
+  the whole map sounds fairer and reads worse — whichever thin township
+  piles its twenty parcels into a single bin sets that axis, and every
+  other row flattens to a few pixels. Count scales each township to its
+  busiest outcome, so the rows inside one cell compare in size and cells
+  do not.
+- **Thin rows keep a baseline and lose their bars.** An outcome with fewer
+  priced parcels than the minimum (20 by default) is not drawn — ten bins
+  over a handful of parcels would pass noise off as a shape — and the frame
+  is cropped to the townships that draw something.
+
+The map is township cells only. At section size a glyph would be about
+15px across, too small to hold a histogram.
 
 ## Why the stages are separate
 

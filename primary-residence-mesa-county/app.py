@@ -40,10 +40,6 @@ LIGHT = {
     "match": "#2a78d6", "no_match": "#eb6834", "unknown": "#898781",
     "series": ["#2a78d6", "#eb6834", "#1baf7a"],
     "context": "#898781",
-    # Sequential: one hue, more-is-darker against a light surface.
-    "seq": ["#cde2fb", "#9ec5f4", "#6da7ec", "#3987e5", "#256abf", "#184f95", "#0d366b"],
-    # Label ink flips where the fill crosses into the dark half of the ramp.
-    "seq_flip": 0.62, "seq_hi_ink": "#ffffff", "seq_lo_ink": "#0b0b0b",
     "empty": "#eeede8",
 }
 DARK = {
@@ -53,12 +49,6 @@ DARK = {
     "match": "#3987e5", "no_match": "#d95926", "unknown": "#898781",
     "series": ["#3987e5", "#d95926", "#199e70"],
     "context": "#898781",
-    # Same hue, reversed: on a dark surface "more" has to mean brighter,
-    # or the high end recedes into the background instead of standing out.
-    "seq": ["#104281", "#184f95", "#256abf", "#3987e5", "#5598e7", "#86b6ef", "#cde2fb"],
-    # Ramp runs the other way here, so the label ink does too: the high end
-    # is the PALE end on a dark surface and needs near-black on it.
-    "seq_flip": 0.45, "seq_hi_ink": "#0b0b0b", "seq_lo_ink": "#ffffff",
     "empty": "#242422",
 }
 
@@ -274,7 +264,7 @@ def si_ticks(prefix):
             f": '{prefix}' + format(datum.value, '~s')")
 
 
-def value_edges(values, n, log):
+def value_edges(values, n, log, upper=0.995):
     """Bin edges spanning the middle 99% of the priced parcels.
 
     The full range is $10 to $21.7M -- six and a third decades, of which the
@@ -282,10 +272,11 @@ def value_edges(values, n, log):
     the axis on a few dozen parcels and leaves four bins for the bulk, so the
     domain stops at the half-percentiles. What falls outside is clipped into
     the end bins rather than dropped: the caption says how many, and every
-    parcel stays counted somewhere.
+    parcel stays counted somewhere. `upper` moves the top of the domain in
+    for a chart with fewer bins to spend.
     """
     lo = nice_number(values.quantile(0.005), up=False) if log else 0.0
-    hi = nice_number(values.quantile(0.995), up=True)
+    hi = nice_number(values.quantile(upper), up=True)
     if log:
         lo = max(lo, 1.0)
         hi = max(hi, lo * 10)
@@ -295,6 +286,63 @@ def value_edges(values, n, log):
     # landing on $50,000 instead of $46,875.
     width = nice_number((hi - lo) / n, up=True) or 1.0
     return np.arange(lo, hi + width * 0.5, width)
+
+
+# --- township glyphs -------------------------------------------------------
+# Each township on the map is drawn as a glyph: three small histograms of
+# value stacked top to bottom (mails to property, mails elsewhere, no answer),
+# each with a band beneath it for a median tick. Everything is laid out in
+# pixels rather than on data scales, so the geometry is exact at any cell size.
+
+GLYPH_INSET, GLYPH_TICK, GLYPH_GAP = 6, 5, 3
+STATUS_RANK = {STATUS_LABEL[s]: i for i, s in enumerate(STATUSES)}
+
+
+def glyph_row_height(px):
+    return (px - 2 * GLYPH_INSET - 3 * GLYPH_TICK - 2 * GLYPH_GAP) / 3
+
+
+def compact_dollars(v):
+    """$0 / $500k / $1.5M -- short enough to sit under a glyph."""
+    if v >= 1e6:
+        return f"${v / 1e6:g}M"
+    return f"${v / 1e3:g}k" if v else "$0"
+
+
+def glyph_marks(rows, bins, px, top_edge, nb):
+    """Pixel rectangles for one histogram per (township, outcome).
+
+    `rows`: one row per cx, cy, status_label, with n, med, the cell's top-left
+    corner as ox/oy, `draw` (clears the minimum) and `top` (the bar value that
+    fills a row). `bins`: cx, cy, status_label, bin, and `value`, the bar
+    height before scaling. Returns (bars, ticks, baselines), each carrying
+    x0/x1/y0/y1 with y measured down from the top.
+    """
+    row_h = glyph_row_height(px)
+    inner = px - 2 * GLYPH_INSET
+    rows = rows.assign(
+        base=rows["oy"] + GLYPH_INSET + row_h
+        + rows["status_label"].map(STATUS_RANK) * (row_h + GLYPH_TICK + GLYPH_GAP),
+        x0=rows["ox"] + GLYPH_INSET, x1=rows["ox"] + px - GLYPH_INSET)
+    baselines = rows.assign(y0=rows["base"], y1=rows["base"] + 1)
+
+    drawn = rows[rows["draw"]]
+    # Clipped the way the values are binned, so a median beyond the axis
+    # sits at its end rather than off the glyph.
+    at = (drawn["ox"] + GLYPH_INSET
+          + inner * drawn["med"].clip(0, top_edge) / top_edge)
+    ticks = drawn.assign(x0=at - 1, x1=at + 1, y0=drawn["base"] + 1,
+                         y1=drawn["base"] + GLYPH_TICK)
+
+    width = inner / nb
+    bars = bins.merge(drawn[["cx", "cy", "status_label", "ox", "base", "n",
+                             "med", "top"]], on=["cx", "cy", "status_label"])
+    left = bars["ox"] + GLYPH_INSET + bars["bin"] * width
+    # A 2px surface gap between neighbouring bars, split across both sides.
+    bars = bars.assign(x0=left + 1, x1=left + width - 1,
+                       y0=bars["base"] - row_h * bars["value"] / bars["top"],
+                       y1=bars["base"])
+    return bars, ticks, baselines
 
 
 # --- page ------------------------------------------------------------------
@@ -503,7 +551,31 @@ st.info(
 )
 
 # --- 2b. the county map ----------------------------------------------------
-st.subheader("Owner occupancy across the county")
+st.subheader("Property values across the county, by outcome")
+
+
+def glyph_layers(bars, ticks, lines, x, x2, y, y2, legend):
+    """The three marks a township glyph is made of, on pixel scales."""
+    return [
+        alt.Chart(lines).mark_rect(fill=P["axis"]).encode(x=x, x2=x2, y=y, y2=y2),
+        alt.Chart(bars).mark_rect().encode(
+            x=x, x2=x2, y=y, y2=y2,
+            color=alt.Color("status_label:N", scale=STATUS_SCALE, title=None,
+                            sort=STATUS_ORDER, legend=legend),
+            tooltip=[alt.Tooltip("status_label:N", title="Outcome"),
+                     alt.Tooltip("range:N", title="Value"),
+                     alt.Tooltip("k:Q", title="Parcels", format=","),
+                     alt.Tooltip("share:Q", title="Share of outcome here",
+                                 format=".1%"),
+                     alt.Tooltip("n:Q", title="Outcome total here", format=","),
+                     alt.Tooltip("med:Q", title="Median here", format="$,.0f")]),
+        alt.Chart(ticks).mark_rect(fill=P["ink"]).encode(
+            x=x, x2=x2, y=y, y2=y2,
+            tooltip=[alt.Tooltip("status_label:N", title="Outcome"),
+                     alt.Tooltip("med:Q", title="Median value", format="$,.0f"),
+                     alt.Tooltip("n:Q", title="Priced parcels", format=",")]),
+    ]
+
 
 if "cx" not in df.columns or df["cx"].isna().all():
     st.info(
@@ -511,171 +583,239 @@ if "cx" not in df.columns or df["cx"].isna().all():
         "to pull layer 2 — the map needs `cache/points/`."
     )
 else:
-    mc0, mc1, mc2 = st.columns([2, 2, 2])
-    level = mc0.radio(
-        "Cell size", ["Township (6 mi)", "Section (1 mi)"], horizontal=True,
-        help="Township gives about 25 usable cells for the whole county — "
-             "coarse. Section is the same grid divided six ways in each "
-             "direction, so the valley resolves and the back country thins out.")
-    min_res = mc1.slider(
-        "Minimum resolved parcels per cell", 10, 200, 30, step=10,
-        help="Cells below this are drawn blank. A rate on 8 parcels is noise, "
-             "and a heat map makes noise look like a finding.")
-    unk_max = mc2.slider(
-        "Grey out cells above this unknown share", 0.10, 1.0, 0.30, step=0.05,
-        format="%.0f%%",
-        help="Unknowns are excluded from the ratio, so in a cell that is "
-             "mostly unknown the ratio is computed from a small, "
-             "self-selected minority. Those cells get a neutral fill "
-             "instead of a place on the colour ramp.")
+    mc0, mc1 = st.columns([3, 2])
+    by_shape = mc0.radio(
+        "Bar height", ["Shape", "Count"], horizontal=True,
+        key="map_bar_scale",
+        help="Shape scales every row to its own tallest bar, so each "
+             "distribution fills its row and the shapes and medians compare "
+             "anywhere on the map — but a tall row is not a big one. Count "
+             "scales each township to its busiest outcome instead: the three "
+             "rows of one cell then compare in size, the thin outcomes "
+             "flatten, and a height means nothing next to another "
+             "township's.") == "Shape"
+    min_n = mc1.slider(
+        "Minimum parcels to draw an outcome", 5, 100, 20, step=5,
+        help="An outcome with fewer priced parcels than this in a township "
+             "keeps its baseline but gets no bars. Ten bins over eight parcels "
+             "is not a distribution, and a small multiple would draw it as one.")
 
-    section_level = level.startswith("Section")
-    KX, KY = ("sx", "sy") if section_level else ("cx", "cy")
-    st.caption(
-        f"Each cell is {'1 mile' if section_level else '6 miles'} square — a "
-        f"survey {'section, 640 acres' if section_level else 'township'} — on a "
-        "grid anchored to where the county's real township lines fall; the "
-        "section grid nests exactly inside the township one. Colour is "
-        "`match / (match + no_match)`; unknowns are out of the ratio, as asked. "
-        "Grey cells hold data but too much of it is unanswerable to put on "
-        "the same scale."
-    )
+    located = df.dropna(subset=["cx", "cy"])
+    located = located.assign(cx=located["cx"].astype(int),
+                             cy=located["cy"].astype(int))
+    priced_here = located[located["TOTVALCUR"] > 0]
 
-    cells = (df.dropna(subset=[KX, KY])
-             .assign(m=df["alt_status"].eq("match"),
-                     nm=df["alt_status"].eq("no_match"),
-                     uk=df["alt_status"].eq("unknown"))
-             .groupby([KX, KY], as_index=False)
-             .agg(n=("ACCOUNTNO", "size"), m=("m", "sum"),
-                  nm=("nm", "sum"), uk=("uk", "sum")))
-    cells = cells.rename(columns={KX: "cx", KY: "cy"})
-    cells["resolved"] = cells["m"] + cells["nm"]
-    # `.where` keeps this float64-with-NaN; masking with pd.NA would make it
-    # an *object* column of floats and NAs. Streamlit re-serialises every
-    # chart's data to Arrow on each rerun, and object columns are the slow,
-    # inference-driven path through that -- chart data stays plain numeric.
-    cells["rate"] = cells["m"] / cells["resolved"].where(cells["resolved"] > 0)
-    cells["unknown_share"] = cells["uk"] / cells["n"]
-    cells["cx"] = cells["cx"].astype(int)
-    cells["cy"] = cells["cy"].astype(int)
-    shown = cells[cells["resolved"] >= min_res].copy()
+    # One set of bins for every glyph, so a bar in one township sits over the
+    # same dollars as the bar beside it. The domain stops at the 97.5th
+    # percentile rather than the value section's 99.5th: ten bins is all a
+    # cell holds, and spending two of them on the top 2% would leave the
+    # housing stock three.
+    edges = value_edges(priced_here["TOTVALCUR"], 10, log=False, upper=0.975)
+    nb, top_edge = len(edges) - 1, float(edges[-1])
+    ranges = [f"${a:,.0f}–${b:,.0f}" for a, b in zip(edges[:-1], edges[1:])]
+    ranges[-1] = f"${edges[-2]:,.0f} and up"
+    binned = priced_here.assign(bin=np.clip(
+        np.searchsorted(edges, priced_here["TOTVALCUR"], side="right") - 1,
+        0, nb - 1))
 
-    trusted = shown[shown["unknown_share"] <= unk_max]
-    flagged = shown[shown["unknown_share"] > unk_max]
+    KEY = ["cx", "cy", "status_label"]
+    rows_all = (binned.groupby(KEY)["TOTVALCUR"]
+                .agg(n="size", med="median").reset_index())
+    bins_all = binned.groupby(KEY + ["bin"]).size().rename("k").reset_index()
+    bins_all["share"] = bins_all["k"] / bins_all.groupby(KEY)["k"].transform("sum")
+    bins_all["range"] = bins_all["bin"].map(dict(enumerate(ranges)))
+    drawn_bins = bins_all.merge(rows_all.loc[rows_all["n"] >= min_n, KEY], on=KEY)
 
-    if trusted.empty:
-        st.warning("No cell clears both thresholds. Loosen one of them.")
+    if drawn_bins.empty:
+        st.warning(f"No township has {min_n} priced parcels in any outcome. "
+                   "Lower the minimum.")
     else:
-        # Square cells, north up. The indices themselves are arbitrary, so the
-        # axes carry a compass rather than numbers nobody can use.
-        xs = range(int(cells.cx.min()), int(cells.cx.max()) + 1)
-        ys = range(int(cells.cy.min()), int(cells.cy.max()) + 1)
-        # Keep cells square and the whole county inside a readable width.
-        px = max(6, min(40, 900 // max(len(list(xs)), 1)))
-        label_cells = px >= 26
-        # The ramp spans only the comparable cells. Letting a 0%-on-mostly-
-        # unknown cell set the low end would compress every real difference
-        # into the top third of the scale.
-        lo, hi = float(trusted.rate.min()), float(trusted.rate.max())
-        seq = alt.Scale(range=P["seq"], domain=[lo, hi], clamp=True)
+        # The frame is the bounding box of the townships that draw something,
+        # not of every parcel: a few parcels far out in the back country would
+        # otherwise add rows and columns of empty tiles and shrink every glyph
+        # that carries data.
+        glyph_cells = drawn_bins[["cx", "cy"]].drop_duplicates()
+        x_lo, x_hi = int(glyph_cells.cx.min()), int(glyph_cells.cx.max())
+        y_lo, y_hi = int(glyph_cells.cy.min()), int(glyph_cells.cy.max())
+        ncols, nrows = x_hi - x_lo + 1, y_hi - y_lo + 1
+        # Big enough to read a glyph, small enough that the frame and its
+        # compass fit the page column of a 1500px window.
+        px = max(72, min(120, 960 // ncols))
+        W, H = px * ncols, px * nrows
 
-        axis_x = alt.X("cx:O", title="west  →  east", sort=list(xs),
-                       axis=alt.Axis(labels=False, ticks=False, grid=False,
-                                     domain=False, titleColor=P["muted"]))
-        axis_y = alt.Y("cy:O", title="south  →  north", sort=list(reversed(list(ys))),
-                       axis=alt.Axis(labels=False, ticks=False, grid=False,
-                                     domain=False, titleColor=P["muted"]))
+        # All three rows for every drawn township, including an outcome with no
+        # priced parcel there, so every glyph keeps all three baselines.
+        frame = (glyph_cells.merge(pd.DataFrame({"status_label": STATUS_ORDER}),
+                                   how="cross")
+                 .merge(rows_all, on=KEY, how="left"))
+        frame["n"] = frame["n"].fillna(0).astype(int)
+        frame["draw"] = frame["n"] >= min_n
+        frame["ox"] = (frame["cx"] - x_lo) * px
+        frame["oy"] = (y_hi - frame["cy"]) * px
 
-        # Every cell that holds any parcel at all, so the county keeps its
-        # shape instead of dissolving wherever data is thin.
-        backdrop = alt.Chart(cells).mark_rect(
-            stroke=P["surface"], strokeWidth=2).encode(
-            x=axis_x, y=axis_y, color=alt.value(P["empty"]),
-            tooltip=[alt.Tooltip("n:Q", title="Parcels", format=","),
-                     alt.Tooltip("resolved:Q", title="Resolved", format=","),
-                     alt.Tooltip("unknown_share:Q", title="Unknown", format=".0%")],
+        # The key: everything in view, drawn as one township.
+        KEY_PX, KEY_GUTTER = 150, 128
+        key_rows = (binned.groupby("status_label")["TOTVALCUR"]
+                    .agg(n="size", med="median").reindex(STATUS_ORDER)
+                    .rename_axis("status_label").reset_index())
+        key_rows["n"] = key_rows["n"].fillna(0).astype(int)
+        key_rows = key_rows.assign(cx=0, cy=0, ox=KEY_GUTTER, oy=0,
+                                   draw=key_rows["n"] > 0)
+        key_bins = (binned.groupby(["status_label", "bin"]).size()
+                    .rename("k").reset_index())
+        key_bins["share"] = (key_bins["k"] /
+                             key_bins.groupby("status_label")["k"].transform("sum"))
+        key_bins = key_bins.assign(cx=0, cy=0,
+                                   range=key_bins["bin"].map(dict(enumerate(ranges))))
+
+        # Bars are counts in both modes; what differs is the bar that fills a
+        # row. Shape fills each row from its own tallest bar. One share axis
+        # for the whole map sounds fairer and reads worse: whichever thin
+        # township piles its twenty parcels into a single bin sets that axis,
+        # and every other row flattens to a few pixels.
+        drawn_bins["value"], key_bins["value"] = drawn_bins["k"], key_bins["k"]
+        scope = KEY if by_shape else ["cx", "cy"]
+        frame = frame.merge(drawn_bins.groupby(scope, as_index=False)["k"].max()
+                            .rename(columns={"k": "top"}), on=scope, how="left")
+        key_scope = ["status_label"] if by_shape else ["cx", "cy"]
+        key_rows = key_rows.merge(key_bins.groupby(key_scope, as_index=False)["k"].max()
+                                  .rename(columns={"k": "top"}), on=key_scope, how="left")
+
+        bars_m, ticks_m, lines_m = glyph_marks(frame, drawn_bins, px, top_edge, nb)
+        bars_k, ticks_k, lines_k = glyph_marks(key_rows, key_bins, KEY_PX, top_edge, nb)
+
+        # Every township in the frame that holds any parcel gets a tile, so the
+        # county keeps its shape where the glyphs thin out.
+        cells = (located.assign(m=located[STATUS_COL].eq("match"),
+                                nm=located[STATUS_COL].eq("no_match"),
+                                uk=located[STATUS_COL].eq("unknown"))
+                 .groupby(["cx", "cy"], as_index=False)
+                 .agg(n=("ACCOUNTNO", "size"), m=("m", "sum"),
+                      nm=("nm", "sum"), uk=("uk", "sum")))
+        framed = cells["cx"].between(x_lo, x_hi) & cells["cy"].between(y_lo, y_hi)
+        tiles = cells[framed].assign(x0=lambda t: (t.cx - x_lo) * px,
+                                     y0=lambda t: (y_hi - t.cy) * px)
+        tiles = tiles.assign(x1=tiles.x0 + px, y1=tiles.y0 + px)
+
+        # Pixel scales; y runs down from the top so north stays up. The cell
+        # indices are arbitrary, so the axes carry a compass and nothing else.
+        compass = dict(labels=False, ticks=False, grid=False, domain=False,
+                       titleColor=P["muted"])
+        map_x = alt.X("x0:Q", scale=alt.Scale(domain=[0, W], nice=False, zero=False),
+                      axis=alt.Axis(title="west  →  east", **compass))
+        map_y = alt.Y("y0:Q", scale=alt.Scale(domain=[0, H], nice=False, zero=False,
+                                              reverse=True),
+                      axis=alt.Axis(title="south  →  north", **compass))
+        x2, y2 = alt.X2("x1"), alt.Y2("y1")
+
+        KW, KH = KEY_GUTTER + KEY_PX + 24, KEY_PX + 22
+        key_x = alt.X("x0:Q", scale=alt.Scale(domain=[0, KW], nice=False, zero=False),
+                      axis=None)
+        key_y = alt.Y("y0:Q", scale=alt.Scale(domain=[0, KH], nice=False, zero=False,
+                                              reverse=True), axis=None)
+        key_tile = pd.DataFrame({"x0": [KEY_GUTTER], "x1": [KEY_GUTTER + KEY_PX],
+                                 "y0": [0], "y1": [KEY_PX]})
+        # Direct labels: the key is where the rows get their names.
+        key_names = lines_k.assign(x0=KEY_GUTTER - 10,
+                                   y0=lines_k["y0"] - glyph_row_height(KEY_PX) / 2)
+        at = [0, nb // 2, nb]
+        key_ticks = pd.DataFrame({
+            "x0": [KEY_GUTTER + GLYPH_INSET + (KEY_PX - 2 * GLYPH_INSET) * i / nb
+                   for i in at],
+            "y0": [KEY_PX + 12] * len(at),
+            "text": [compact_dollars(edges[i]) + ("+" if i == nb else "") for i in at],
+        })
+        key_chart = alt.layer(
+            alt.Chart(key_tile).mark_rect(fill=P["empty"]).encode(
+                x=key_x, x2=x2, y=key_y, y2=y2),
+            *glyph_layers(bars_k, ticks_k, lines_k, key_x, x2, key_y, y2, None),
+            alt.Chart(key_names).mark_text(
+                align="right", baseline="middle", fontSize=12, color=P["ink2"]).encode(
+                x=key_x, y=key_y, text="status_label:N"),
+            alt.Chart(key_ticks).mark_text(
+                baseline="middle", fontSize=11, color=P["muted"]).encode(
+                x=key_x, y=key_y, text="text:N"),
+        ).properties(width=KW, height=KH)
+
+        # Dollar signs escaped for markdown, and outside the f-string braces:
+        # a backslash inside them is a syntax error before Python 3.12.
+        axis_top = compact_dollars(top_edge).replace("$", "\\$")
+        step = compact_dollars(edges[1] - edges[0]).replace("$", "\\$")
+        c_key, c_text = st.columns([2, 3], vertical_alignment="center")
+        c_key.altair_chart(key_chart, width="content")
+        c_text.caption(
+            "**Reading a cell.** On the left is everything in view, drawn as one "
+            "township. Each cell of the map below is a 6-mile survey township "
+            "carrying the same three rows. Each row is a histogram of the "
+            "assessor's total actual value on one shared "
+            f"\\$0–{axis_top} axis in {step} bins, the last bin holding "
+            "everything above it, and the dark tick under a row is that "
+            "outcome's median there. "
+            + ("Each row is scaled to its own tallest bar: read the shapes and "
+               "the medians, not the heights — the counts are in the tooltips "
+               "and the table. "
+               if by_shape else
+               "Bar height is a count, scaled to each township's busiest "
+               "outcome: the rows inside a cell compare, cells with each other "
+               "do not. ")
+            + f"A row with fewer than {min_n} priced parcels keeps its baseline "
+              "and loses its bars."
         )
-        heat = alt.Chart(trusted).mark_rect(
-            stroke=P["surface"], strokeWidth=2).encode(
-            x=axis_x, y=axis_y,
-            color=alt.Color("rate:Q", scale=seq,
-                            title="Mails to property",
-                            legend=alt.Legend(format=".0%", orient="top",
-                                              gradientLength=190, direction="horizontal")),
-            tooltip=[alt.Tooltip("rate:Q", title="Mails to property", format=".1%"),
-                     alt.Tooltip("n:Q", title="Parcels", format=","),
-                     alt.Tooltip("resolved:Q", title="Resolved", format=","),
-                     alt.Tooltip("m:Q", title="Mails to property", format=","),
-                     alt.Tooltip("nm:Q", title="Mails elsewhere", format=","),
-                     alt.Tooltip("unknown_share:Q", title="Unknown", format=".0%")],
-        )
-        # Cells whose ratio rests on too little answerable data: present,
-        # labelled, but deliberately off the colour scale.
-        grey = alt.Chart(flagged).mark_rect(
-            stroke=P["surface"], strokeWidth=2).encode(
-            x=axis_x, y=axis_y, color=alt.value(P["context"]),
-            tooltip=[alt.Tooltip("rate:Q", title="Mails to property", format=".1%"),
-                     alt.Tooltip("n:Q", title="Parcels", format=","),
-                     alt.Tooltip("resolved:Q", title="Resolved", format=","),
-                     alt.Tooltip("unknown_share:Q", title="Unknown", format=".0%")],
-        )
-        # Direct labels: the light end of a sequential ramp is under 3:1, so
-        # the number has to be readable without the colour.
-        mid = lo + P["seq_flip"] * (hi - lo)
-        layers = [backdrop, heat, grey]
-        if label_cells:
-            layers.append(
-                alt.Chart(trusted).mark_text(fontSize=11, fontWeight=600).encode(
-                    x=axis_x, y=axis_y, text=alt.Text("rate:Q", format=".0%"),
-                    color=alt.condition(alt.datum.rate > mid,
-                                        alt.value(P["seq_hi_ink"]),
-                                        alt.value(P["seq_lo_ink"]))))
-            # The grey fill is mode-invariant, so its label is too: white on
-            # #898781 is only 2.7:1, near-black is 7.9:1 in both themes.
-            layers.append(
-                alt.Chart(flagged).mark_text(
-                    fontSize=11, fontWeight=600, color="#0b0b0b").encode(
-                    x=axis_x, y=axis_y, text=alt.Text("rate:Q", format=".0%")))
+
         st.altair_chart(
-            alt.layer(*layers).properties(
-                width=px * len(list(xs)), height=px * len(list(ys))),
+            alt.layer(
+                alt.Chart(tiles).mark_rect(
+                    fill=P["empty"], stroke=P["surface"], strokeWidth=2).encode(
+                    x=map_x, x2=x2, y=map_y, y2=y2,
+                    tooltip=[alt.Tooltip("n:Q", title="Parcels", format=","),
+                             alt.Tooltip("m:Q", title=STATUS_LABEL["match"], format=","),
+                             alt.Tooltip("nm:Q", title=STATUS_LABEL["no_match"],
+                                         format=","),
+                             alt.Tooltip("uk:Q", title=STATUS_LABEL["unknown"],
+                                         format=",")]),
+                *glyph_layers(bars_m, ticks_m, lines_m, map_x, x2, map_y, y2,
+                              alt.Legend(orient="top")),
+            ).properties(width=W, height=H),
             width="content")
-        if not label_cells:
-            st.caption(
-                "Cells are too small at this resolution to carry their number. "
-                "Hover for the exact rate and counts, or open the table below — "
-                "the pale end of the ramp is under 3:1 against the surface, so "
-                "the colour alone is not the reading."
-            )
 
+        held = cells.merge(glyph_cells, on=["cx", "cy"])
+        outside = cells[~framed]
+        # A count, not a percentage: the parcels left undrawn are a rounding
+        # error of the total, and "100%" would say there were none.
+        undrawn = int(cells.n.sum() - held.n.sum())
         st.caption(
-            f"{len(trusted)} cells on the scale, covering "
-            f"{trusted.n.sum() / cells.n.sum():.0%} of the parcels in view · "
-            f"{len(flagged)} greyed for unknowns · "
-            f"{len(cells) - len(shown)} too thin to draw."
+            f"{len(glyph_cells)} townships drawn · "
+            f"{len(tiles) - len(glyph_cells)} blank tiles"
+            + (f" and {len(outside)} townships beyond the frame" if len(outside) else "")
+            + f" hold the other {undrawn:,} located parcels, too few in any "
+              "outcome to draw · "
+            + f"{len(located) - len(priced_here):,} carry no value and are not "
+              "binned."
         )
-        tbl = shown.sort_values("rate", ascending=False)
-        unit = "section" if section_level else "township"
-        table_view(tbl.assign(rate=(tbl.rate * 100).round(1),
-                              unknown_share=(tbl.unknown_share * 100).round(1))
-                   [["cx", "cy", "n", "resolved", "m", "nm", "rate", "unknown_share"]]
-                   .rename(columns={"cx": f"{unit} X", "cy": f"{unit} Y", "n": "Parcels",
-                                    "resolved": "Resolved", "m": "To property",
-                                    "nm": "Elsewhere", "rate": "Mails to property %",
-                                    "unknown_share": "Unknown %"}),
-                   "Map grid cells")
-
-        if len(flagged):
-            st.warning(
-                f"The {len(flagged)} grey cells run "
-                f"{flagged.unknown_share.min():.0%}–{flagged.unknown_share.max():.0%} "
-                "unknown, and they hold the lowest printed rates on the map. "
-                "That ordering is not a coincidence: PO-box and missing-address "
-                "parcels cluster in the rural east and south, so excluding "
-                "them does not remove the bias, it concentrates it. Colouring "
-                "these on the same ramp would draw a rental band around the "
-                "county's edge that the underlying records do not support."
+        grey_led = held[(held.uk > held.m) & (held.uk > held.nm)]
+        if len(grey_led):
+            st.caption(
+                f"In {len(grey_led)} of the drawn townships *{STATUS_LABEL['unknown']}* "
+                "is the largest outcome. The address match could not settle most "
+                "of those parcels, so a rate built from the other two rows would "
+                "describe a minority of each — which is why the grey row gets a "
+                "histogram of its own."
             )
+
+        counts_wide = (bins_all.merge(glyph_cells, on=["cx", "cy"])
+                       .pivot_table(index=KEY, columns="bin", values="k",
+                                    aggfunc="sum", fill_value=0)
+                       .reindex(columns=range(nb), fill_value=0))
+        counts_wide.columns = ranges
+        tbl = (rows_all.set_index(KEY)[["n", "med"]]
+               .join(counts_wide, how="inner").reset_index())
+        tbl = (tbl.assign(rank=tbl["status_label"].map(STATUS_RANK),
+                          med=tbl["med"].round(0))
+               .sort_values(["cx", "cy", "rank"]).drop(columns="rank"))
+        table_view(tbl.rename(columns={"cx": "Township X", "cy": "Township Y",
+                                       "status_label": "Outcome",
+                                       "n": "Priced parcels", "med": "Median value"}),
+                   "Township value distributions")
 
 st.divider()
 
