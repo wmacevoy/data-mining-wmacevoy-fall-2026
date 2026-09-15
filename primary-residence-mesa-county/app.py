@@ -40,6 +40,12 @@ LIGHT = {
     "match": "#2a78d6", "no_match": "#eb6834", "unknown": "#898781",
     "series": ["#2a78d6", "#eb6834", "#1baf7a"],
     "context": "#898781",
+    # Diverging, for correlation: the reference blue <-> red poles through a
+    # neutral grey (validated both modes: CVD dE 21.6 light, 19.2 dark).
+    # Near-black ink clears 4.5:1 on every step of this ramp, so a label on
+    # it never flips.
+    "div": ["#e34948", "#f0efec", "#2a78d6"],
+    "div_flip": 1.01, "div_lo_ink": "#0b0b0b", "div_hi_ink": "#0b0b0b",
     "empty": "#eeede8",
 }
 DARK = {
@@ -49,6 +55,10 @@ DARK = {
     "match": "#3987e5", "no_match": "#d95926", "unknown": "#898781",
     "series": ["#3987e5", "#d95926", "#199e70"],
     "context": "#898781",
+    # White clears 4.5:1 out to |r| = 0.8; past that the poles are light
+    # enough that near-black reads better.
+    "div": ["#e66767", "#383835", "#3987e5"],
+    "div_flip": 0.82, "div_lo_ink": "#ffffff", "div_hi_ink": "#0b0b0b",
     "empty": "#242422",
 }
 
@@ -693,9 +703,15 @@ else:
                  .agg(n=("ACCOUNTNO", "size"), m=("m", "sum"),
                       nm=("nm", "sum"), uk=("uk", "sum")))
         framed = cells["cx"].between(x_lo, x_hi) & cells["cy"].between(y_lo, y_hi)
+        # A township's most common situs city: a name a reader can place.
+        places = (located.dropna(subset=["SITUS_CITY"])
+                  .groupby(["cx", "cy"])["SITUS_CITY"]
+                  .agg(lambda s: s.mode().iat[0]).str.title()
+                  .rename("place").reset_index())
         tiles = cells[framed].assign(x0=lambda t: (t.cx - x_lo) * px,
                                      y0=lambda t: (y_hi - t.cy) * px)
-        tiles = tiles.assign(x1=tiles.x0 + px, y1=tiles.y0 + px)
+        tiles = tiles.assign(x1=tiles.x0 + px, y1=tiles.y0 + px).merge(
+            places, on=["cx", "cy"], how="left")
 
         # Pixel scales; y runs down from the top so north stays up. The cell
         # indices are arbitrary, so the axes carry a compass and nothing else.
@@ -767,7 +783,8 @@ else:
                 alt.Chart(tiles).mark_rect(
                     fill=P["empty"], stroke=P["surface"], strokeWidth=2).encode(
                     x=map_x, x2=x2, y=map_y, y2=y2,
-                    tooltip=[alt.Tooltip("n:Q", title="Parcels", format=","),
+                    tooltip=[alt.Tooltip("place:N", title="Township"),
+                             alt.Tooltip("n:Q", title="Parcels", format=","),
                              alt.Tooltip("m:Q", title=STATUS_LABEL["match"], format=","),
                              alt.Tooltip("nm:Q", title=STATUS_LABEL["no_match"],
                                          format=","),
@@ -816,6 +833,211 @@ else:
                                        "status_label": "Outcome",
                                        "n": "Priced parcels", "med": "Median value"}),
                    "Township value distributions")
+
+        # --- 2c. township against township ---------------------------------
+        st.subheader("Which townships share a value profile?")
+
+        # Mails-to-property only: each township becomes the ten counts its
+        # blue row on the map is drawn from.
+        match_label = STATUS_LABEL["match"]
+        prof = (rows_all[(rows_all["status_label"] == match_label)
+                         & (rows_all["n"] >= min_n)]
+                .merge(places, on=["cx", "cy"], how="left")
+                .sort_values(["med", "cx", "cy"]).reset_index(drop=True))
+
+        if len(prof) < 2:
+            st.info(f"Fewer than two townships have {min_n} priced parcels that "
+                    "mail to the property, so there is nothing to compare. "
+                    "Lower the minimum above.")
+        else:
+            N = len(prof)
+            counts = (bins_all[bins_all["status_label"] == match_label]
+                      .pivot_table(index=["cx", "cy"], columns="bin", values="k",
+                                   aggfunc="sum", fill_value=0)
+                      .reindex(columns=range(nb), fill_value=0))
+            X = counts.loc[list(zip(prof["cx"], prof["cy"]))].to_numpy(dtype=float)
+            peak, total = X.max(axis=1), X.sum(axis=1)
+            # A township whose ten counts are all equal has no correlation to
+            # give; corrcoef says so with NaN, and that cell is left blank.
+            with np.errstate(invalid="ignore", divide="ignore"):
+                R = np.corrcoef(X)
+
+            # Several cities span more than one township, so the name carries
+            # the median as well -- which is also the order the grid runs in.
+            labels = (prof["place"].fillna("Unnamed") + " · "
+                      + prof["med"].map(lambda v: f"${v / 1e3:,.0f}k"))
+            clash = labels.duplicated(keep=False)
+            labels[clash] = (labels[clash] + " (" + prof.loc[clash, "cx"].astype(str)
+                             + "," + prof.loc[clash, "cy"].astype(str) + ")")
+            labels = labels.to_numpy()
+            ranges_arr = np.asarray(ranges)
+
+            # Pixels again: names and histograms in the margins, one square per
+            # pair. A column's dots share the column township's count scale and
+            # a row's the row township's, as in any scatter-plot matrix, so each
+            # margin histogram is scaled the same way its dots are.
+            NAME_W, HIST_W, HIST_H, GAP = 150, 60, 44, 8
+            SIDE, TOP = NAME_W + HIST_W + GAP, NAME_W + HIST_H + GAP
+            S = max(22, min(56, (980 - SIDE) // N))
+            GW, GH, PAD = SIDE + S * N, TOP + S * N, max(3, S // 8)
+            inner = S - 2 * PAD
+
+            rr, cc = (a.ravel() for a in np.meshgrid(np.arange(N), np.arange(N),
+                                                     indexing="ij"))
+            pairs = pd.DataFrame({
+                "r": R[rr, cc], "row_name": labels[rr], "col_name": labels[cc],
+                "row_n": total[rr].astype(int), "col_n": total[cc].astype(int),
+                "x0": SIDE + cc * S, "x1": SIDE + (cc + 1) * S,
+                "y0": TOP + rr * S, "y1": TOP + (rr + 1) * S, "above": rr < cc,
+            })
+            upper = pairs[pairs["above"] & pairs["r"].notna()]
+            upper = upper.assign(
+                ink=np.where(upper["r"].abs() > P["div_flip"],
+                             P["div_hi_ink"], P["div_lo_ink"]))
+
+            r3, c3, b3 = (a.ravel() for a in np.meshgrid(
+                np.arange(N), np.arange(N), np.arange(nb), indexing="ij"))
+            below = r3 > c3
+            r3, c3, b3 = r3[below], c3[below], b3[below]
+            dots = pd.DataFrame({
+                "x0": SIDE + c3 * S + PAD + inner * X[c3, b3] / peak[c3],
+                "y0": TOP + (r3 + 1) * S - PAD - inner * X[r3, b3] / peak[r3],
+                "range": ranges_arr[b3],
+                "row_name": labels[r3], "row_k": X[r3, b3].astype(int),
+                "col_name": labels[c3], "col_k": X[c3, b3].astype(int),
+            })
+
+            tb, bb = (a.ravel() for a in np.meshgrid(np.arange(N), np.arange(nb),
+                                                     indexing="ij"))
+            k = X[tb, bb]
+            margin = pd.DataFrame({"name": labels[tb], "range": ranges_arr[bb],
+                                   "k": k.astype(int), "share": k / total[tb]})
+            tw, sw = inner / nb, HIST_W / nb
+            top_bars = margin.assign(
+                x0=SIDE + tb * S + PAD + bb * tw + 0.5,
+                x1=SIDE + tb * S + PAD + (bb + 1) * tw - 0.5,
+                y0=NAME_W + HIST_H * (1 - k / peak[tb]), y1=NAME_W + HIST_H)
+            side_bars = margin.assign(
+                x0=NAME_W + bb * sw + 1, x1=NAME_W + (bb + 1) * sw - 1,
+                y0=TOP + (tb + 1) * S - PAD - inner * k / peak[tb],
+                y1=TOP + (tb + 1) * S - PAD)
+            lines = pd.DataFrame({
+                "x0": np.r_[SIDE + np.arange(N) * S + PAD, np.full(N, NAME_W)],
+                "x1": np.r_[SIDE + (np.arange(N) + 1) * S - PAD,
+                            np.full(N, NAME_W + HIST_W)],
+                "y0": np.r_[np.full(N, NAME_W + HIST_H),
+                            TOP + (np.arange(N) + 1) * S - PAD],
+            })
+            lines["y1"] = lines["y0"] + 1
+            steps = np.arange(N)
+            side_names = pd.DataFrame({"x0": NAME_W - 8,
+                                       "y0": TOP + (steps + 0.5) * S, "name": labels})
+            top_names = pd.DataFrame({"x0": SIDE + (steps + 0.5) * S,
+                                      "y0": NAME_W - 8, "name": labels})
+            note = pd.DataFrame({"x0": [0], "y0": [62], "text": [
+                "below: one dot per value bin\n"
+                "→ column's count   ↑ row's count\n"
+                "above: r of the ten bin counts"]})
+
+            gx = alt.X("x0:Q", scale=alt.Scale(domain=[0, GW], nice=False, zero=False),
+                       axis=None)
+            gy = alt.Y("y0:Q", scale=alt.Scale(domain=[0, GH], nice=False, zero=False,
+                                               reverse=True), axis=None)
+            pair_tip = [alt.Tooltip("row_name:N", title="Row"),
+                        alt.Tooltip("col_name:N", title="Column"),
+                        alt.Tooltip("r:Q", title="Correlation", format=".2f"),
+                        alt.Tooltip("row_n:Q", title="Row parcels", format=","),
+                        alt.Tooltip("col_n:Q", title="Column parcels", format=",")]
+            bar_tip = [alt.Tooltip("name:N", title="Township"),
+                       alt.Tooltip("range:N", title="Value"),
+                       alt.Tooltip("k:Q", title="Parcels", format=","),
+                       alt.Tooltip("share:Q", title="Share of township", format=".1%")]
+            layers = [
+                alt.Chart(pairs[~pairs["above"]]).mark_rect(
+                    fill=P["empty"], stroke=P["surface"], strokeWidth=2).encode(
+                    x=gx, x2=x2, y=gy, y2=y2, tooltip=pair_tip),
+                alt.Chart(upper).mark_rect(stroke=P["surface"], strokeWidth=2).encode(
+                    x=gx, x2=x2, y=gy, y2=y2,
+                    color=alt.Color(
+                        "r:Q", title="Correlation",
+                        scale=alt.Scale(domain=[-1, 0, 1], range=P["div"],
+                                        interpolate="lab"),
+                        legend=alt.Legend(orient="none", legendX=0, legendY=0,
+                                          direction="horizontal", values=[-1, 0, 1],
+                                          gradientLength=NAME_W - 10)),
+                    tooltip=pair_tip),
+            ]
+            if S >= 30:
+                # Centred in the cell, one layer per ink so the label colour
+                # never competes with the fill's colour scale.
+                mid = upper.assign(x0=(upper["x0"] + upper["x1"]) / 2,
+                                   y0=(upper["y0"] + upper["y1"]) / 2)
+                for ink, part in mid.groupby("ink"):
+                    layers.append(alt.Chart(part).mark_text(
+                        fontSize=10 if S < 40 else 11, fontWeight=600,
+                        baseline="middle", color=ink).encode(
+                        x=gx, y=gy, text=alt.Text("r:Q", format=".2f"),
+                        tooltip=pair_tip))
+            layers += [
+                alt.Chart(dots).mark_circle(
+                    size=float(max(8, min(30, S * S / 100))), color=P["ink2"],
+                    opacity=0.9, stroke=P["empty"], strokeWidth=0.75).encode(
+                    x=gx, y=gy,
+                    tooltip=[alt.Tooltip("range:N", title="Value"),
+                             alt.Tooltip("row_name:N", title="Row"),
+                             alt.Tooltip("row_k:Q", title="Row parcels", format=","),
+                             alt.Tooltip("col_name:N", title="Column"),
+                             alt.Tooltip("col_k:Q", title="Column parcels", format=",")]),
+                alt.Chart(lines).mark_rect(fill=P["axis"]).encode(
+                    x=gx, x2=x2, y=gy, y2=y2),
+                alt.Chart(top_bars[top_bars["k"] > 0]).mark_rect(fill=P["match"]).encode(
+                    x=gx, x2=x2, y=gy, y2=y2, tooltip=bar_tip),
+                alt.Chart(side_bars[side_bars["k"] > 0]).mark_rect(fill=P["match"]).encode(
+                    x=gx, x2=x2, y=gy, y2=y2, tooltip=bar_tip),
+                alt.Chart(side_names).mark_text(
+                    align="right", baseline="middle", fontSize=11, color=P["ink2"],
+                    limit=NAME_W - 12).encode(x=gx, y=gy, text="name:N"),
+                alt.Chart(top_names).mark_text(
+                    align="left", baseline="middle", angle=270, fontSize=11,
+                    color=P["ink2"], limit=NAME_W - 12).encode(x=gx, y=gy, text="name:N"),
+                alt.Chart(note).mark_text(
+                    align="left", baseline="top", fontSize=11, color=P["muted"],
+                    lineBreak="\n", lineHeight=16).encode(x=gx, y=gy, text="text:N"),
+            ]
+
+            st.caption(
+                f"The {N} townships with at least {min_n} priced parcels that mail "
+                "to the property (the map's minimum), each reduced to the ten "
+                "counts behind its blue row on the map and drawn along the top "
+                "and down the side. Below the diagonal every dot is one value "
+                "bin: across is the column township's count, up is the row "
+                "township's, each on that township's own scale, so dots along a "
+                "rising line mean two townships share a shape whatever their "
+                "sizes. Above the diagonal is the Pearson correlation of the same "
+                "ten counts, blue for alike and red for opposite. Townships run "
+                "from the lowest median value to the highest, so similar markets "
+                "sit together. Ten points make a noisy correlation, and a "
+                "township near the minimum makes a noisier one."
+            )
+            st.altair_chart(alt.layer(*layers).properties(width=GW, height=GH),
+                            width="content")
+            ranked = upper.sort_values("r")
+            if len(ranked):
+                alike, apart = ranked.iloc[-1], ranked.iloc[0]
+                said = (f"Most alike: {alike.row_name} and {alike.col_name} "
+                        f"(r = {alike.r:.2f}). Most opposite: {apart.row_name} "
+                        f"and {apart.col_name} (r = {apart.r:.2f}).")
+                # Every label carries a dollar figure; unescaped, two of them
+                # open a LaTeX span.
+                st.caption(said.replace("$", "\\$"))
+
+            corr = pd.DataFrame(np.round(R, 2), columns=labels)
+            corr.insert(0, "Township", labels)
+            corr.insert(1, "Township X", prof["cx"].to_numpy())
+            corr.insert(2, "Township Y", prof["cy"].to_numpy())
+            corr.insert(3, "Priced parcels", total.astype(int))
+            corr.insert(4, "Median value", prof["med"].round(0).to_numpy())
+            table_view(corr, "Township correlations")
 
 st.divider()
 

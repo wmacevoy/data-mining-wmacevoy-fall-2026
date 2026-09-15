@@ -256,6 +256,28 @@ Three things about it are decisions:
 The map is township cells only. At section size a glyph would be about
 15px across, too small to hold a histogram.
 
+### Township against township
+
+Below the map, every township with enough priced mails-to-property parcels
+(the map's minimum) is reduced to the ten counts behind its blue row, and
+each is compared with every other in one grid. The townships' histograms
+run along the top and down the side. Below the diagonal each cell is a
+scatter with one dot per value bin — the column township's count across,
+the row township's up, each on that township's own scale, as in any
+scatter-plot matrix. Above the diagonal is the Pearson correlation of the
+same ten counts, on a red ↔ grey ↔ blue scale.
+
+Rows and columns run from the lowest median value to the highest, so
+townships of similar price sit together and the grid reads as a gradient
+rather than a checkerboard. Townships are named by their most common situs
+city plus that median, because several cities span more than one township.
+Correlation is scale-free, so an 18,000-parcel township and a 40-parcel one
+compare directly, but ten bins is ten points: read r as a similarity score,
+not a test. At the default filters it runs from −0.92 to 0.96, and the
+extremes are the price story — Collbran, the cheapest profile in the county,
+runs opposite to the three dearest townships, two in Grand Junction and one
+north of Fruita.
+
 ## Why the stages are separate
 
 `fetch` is the only stage that touches the network. Everything after it
