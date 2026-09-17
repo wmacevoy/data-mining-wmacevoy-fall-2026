@@ -165,6 +165,17 @@ toggle and the outcome/search boxes currently select is what comes out,
 which is the reason it is there: the on-screen parcel table is truncated
 to 500 rows, and the export is not.
 
+Each parcel row says where it is: `Township` (the cell's name),
+`Township X` / `Township Y` (the 6-mile cell the map draws it in) and
+`LATITUDE` / `LONGITUDE`. The two township tables use the same
+`Township X` / `Township Y` headers, so an exported parcel file joins to
+either one on that pair. Join on the pair, not the name, because several
+cities span more than one township. A cell is named for the most common
+situs city among its Residential, Townhouse and Condo parcels, whatever the
+sidebar selects, so a township keeps one name on the map, in the grid and
+in every file. Without `cache/points/` the location columns are simply
+absent.
+
 Which format:
 
 | | keeps dtypes and NA | opens in | note |

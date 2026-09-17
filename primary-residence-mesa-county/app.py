@@ -155,6 +155,17 @@ def load():
             ["ACCOUNTNO", "LATITUDE", "LONGITUDE", "UTM12_X", "UTM12_Y"]]
         df = df.merge(coords, on="ACCOUNTNO", how="left")
         df = geo.add_survey_grid(df)
+        # A township's most common situs city: a name a reader can place.
+        # Taken over the homes, not the sidebar's selection, so a cell has one
+        # name on the map, in the grid and in the export whatever the filters
+        # say. Homes, not every parcel: counting vacant and agricultural land
+        # renames the township around Palisade "Mesa".
+        cities = df[df["PROPTYPE"].isin(TYPES)].dropna(
+            subset=["cx", "cy", "SITUS_CITY"])
+        names = (cities.assign(township=cities["SITUS_CITY"].str.title())
+                 .groupby(["cx", "cy"], as_index=False)["township"]
+                 .agg(lambda s: s.mode().iat[0]))
+        df = df.merge(names, on=["cx", "cy"], how="left")
     return df
 
 
@@ -703,11 +714,8 @@ else:
                  .agg(n=("ACCOUNTNO", "size"), m=("m", "sum"),
                       nm=("nm", "sum"), uk=("uk", "sum")))
         framed = cells["cx"].between(x_lo, x_hi) & cells["cy"].between(y_lo, y_hi)
-        # A township's most common situs city: a name a reader can place.
-        places = (located.dropna(subset=["SITUS_CITY"])
-                  .groupby(["cx", "cy"])["SITUS_CITY"]
-                  .agg(lambda s: s.mode().iat[0]).str.title()
-                  .rename("place").reset_index())
+        places = (located.groupby(["cx", "cy"], as_index=False)["township"]
+                  .first().rename(columns={"township": "place"}))
         tiles = cells[framed].assign(x0=lambda t: (t.cx - x_lo) * px,
                                      y0=lambda t: (y_hi - t.cy) * px)
         tiles = tiles.assign(x1=tiles.x0 + px, y1=tiles.y0 + px).merge(
@@ -829,6 +837,8 @@ else:
         tbl = (tbl.assign(rank=tbl["status_label"].map(STATUS_RANK),
                           med=tbl["med"].round(0))
                .sort_values(["cx", "cy", "rank"]).drop(columns="rank"))
+        tbl.insert(0, "Township", tbl[["cx", "cy"]].merge(
+            places, on=["cx", "cy"], how="left")["place"].to_numpy())
         table_view(tbl.rename(columns={"cx": "Township X", "cy": "Township Y",
                                        "status_label": "Outcome",
                                        "n": "Priced parcels", "med": "Median value"}),
@@ -1334,21 +1344,36 @@ if q:
                 | rows["MAILING"].fillna("").str.contains(pat, case=False)
                 | rows["OWNER"].fillna("").str.contains(pat, case=False)]
 
-cols = ["ACCOUNTNO", "PROPTYPE", "LOCATION", "SITUS_CITY", "MAILING",
+# Where each parcel sits: the township cell the map draws it in, under the
+# headers the township tables use, so exported parcels join to either one on
+# Township X and Township Y. None of it exists without cached coordinates.
+WHERE = {"township": "Township", "cx": "Township X", "cy": "Township Y",
+         "LATITUDE": "LATITUDE", "LONGITUDE": "LONGITUDE"}
+where = [c for c in WHERE if c in rows.columns]
+cols = ["ACCOUNTNO", "PROPTYPE", "LOCATION", "SITUS_CITY", *where, "MAILING",
         "MAILING_CITY", "MAILING_ST", "OWNER", "owner_type", "alt_situs",
         "mailing_norm", "match_status", "alt_status", "match_reason",
         "alt_reason", "mail_portfolio", "TOTVALCUR"]
+# Cell indices are whole numbers stored as floats (NaN for no coordinates);
+# Int64 keeps them "12" rather than "12.0" in the CSV.
+parcels = (rows[cols].astype({c: "Int64" for c in ("cx", "cy") if c in where})
+           .rename(columns=WHERE))
+unplaced = int(rows["cx"].isna().sum()) if "cx" in where else 0
 st.caption(f"{len(rows):,} parcels — the table shows the first 500; "
-           "export below to get all of them.")
-st.dataframe(rows[cols].head(500), width="stretch", hide_index=True,
+           "export below to get all of them."
+           + (f" {unplaced:,} have no coordinates, so no township."
+              if unplaced else ""))
+st.dataframe(parcels.head(500), width="stretch", hide_index=True,
              column_config={
                  "alt_situs": st.column_config.TextColumn("situs_norm (LOCATION)"),
                  "TOTVALCUR": st.column_config.NumberColumn("Value", format="$%d"),
                  "mail_portfolio": st.column_config.NumberColumn("Parcels at mailing addr"),
+                 "LATITUDE": st.column_config.NumberColumn(format="%.5f"),
+                 "LONGITUDE": st.column_config.NumberColumn(format="%.5f"),
              })
 # The parcel rows first: it is the table people come here to take away, and
 # the only one the screen truncates.
-EXPORTS = {"Parcels — the columns shown above": rows[cols],
+EXPORTS = {"Parcels — the columns shown above": parcels,
            "Parcels — every column": rows,
            **EXPORTS}
 
