@@ -289,6 +289,52 @@ extremes are the price story — Collbran, the cheapest profile in the county,
 runs opposite to the three dearest townships, two in Grand Junction and one
 north of Fruita.
 
+### What the profiles vary along
+
+The grid compares townships a pair at a time; the section under it takes
+the same ten numbers apart. Each township becomes the **share** of its
+mails-to-property parcels in each value bin, and those points in ten
+dimensions are decomposed into the directions they spread out along.
+
+Two choices, both on purpose:
+
+- **Shares, not counts.** On counts the first component would be township
+  size, which the map already shows, and the shape would be pushed down
+  the list.
+- **Covariance, not correlation.** All ten variables are already in one
+  unit (share of a township). Standardizing would scale the near-empty
+  top bin up to the weight of the bin half the county sits in, which is
+  exactly the wrong emphasis.
+
+Three charts:
+
+1. **The variance plot** — a bar per component for what it accounts for,
+   and a line for the running total against the whole. At the default
+   filters the first component holds 47% of the variance between the 20
+   drawn townships, the first five pass 90%, and nine account for all of
+   it. Ten shares that sum to one leave nine directions to vary in, and
+   *N* townships leave *N*−1; components past that are floating-point
+   dust and are not drawn.
+2. **The loadings** — the weight each component puts on each value bin,
+   for the first three. The first runs from one sign at the cheap end to
+   the other at the dear end, and correlates r = 0.95 with the township's
+   median; the second and third are shape, not level (r = 0.13 and 0.07).
+3. **The townships on the first two components**, which hold 66% of the
+   variance between them. Near neighbours have profiles of the same
+   shape. Dot size is the parcels behind the profile, because at the
+   minimum a township is ten small counts.
+
+An SVD fixes a component only up to its sign, so each is oriented to rise
+towards the dear end of the axis — otherwise a rerun can mirror the whole
+picture. Vega has no label layout, so a label that would land on one
+already placed is lifted, and labels on the right hang to the left of
+their dot; the dots themselves never move. Ten points and, at the
+minimum, forty parcels behind some of them: read the later components as
+noise unless the filters are generous.
+
+The variances, the loadings and every township's scores are all in the
+table view and the export picker.
+
 ## Why the stages are separate
 
 `fetch` is the only stage that touches the network. Everything after it

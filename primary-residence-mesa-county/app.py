@@ -1049,6 +1049,234 @@ else:
             corr.insert(4, "Median value", prof["med"].round(0).to_numpy())
             table_view(corr, "Township correlations")
 
+            # --- 2d. principal components ------------------------------
+            st.subheader("What the profiles vary along")
+            st.caption(
+                "The grid above compares townships a pair at a time. The same "
+                "ten counts can be taken apart instead: each township is a "
+                "point in ten dimensions, and the principal components are the "
+                "directions that spread those points out — the first is the "
+                "one the townships differ along most, the second the most of "
+                "what is left, and so on, each at right angles to the ones "
+                "before it. Shares of the township rather than counts, because "
+                "size is not what is being compared; the covariance rather "
+                "than the correlation, because the ten are already in one unit "
+                "and standardizing would give the near-empty top bin the same "
+                "say as the bin half the county lives in."
+            )
+
+            profiles = X / total[:, None]
+            U, S, Vt = np.linalg.svd(profiles - profiles.mean(axis=0),
+                                     full_matrices=False)
+            var = S ** 2 / (N - 1)
+            ratio, cum = var / var.sum(), np.cumsum(var) / var.sum()
+            # Ten shares that sum to one leave nine directions to vary in, and
+            # N townships leave N-1. Past that the singular values are
+            # floating-point dust, and a 0% bar with a name would read as a
+            # finding.
+            k = int((S > S[0] * 1e-10).sum())
+            scores = U * S
+            # An SVD fixes each component only up to its sign. Orient them so
+            # the loadings rise towards the dear end of the axis: otherwise a
+            # rerun can mirror the whole picture and a township that was on the
+            # right is suddenly on the left.
+            orient = np.sign(Vt @ (np.arange(nb) - (nb - 1) / 2))
+            orient[orient == 0] = 1
+            Vt, scores = Vt * orient[:, None], scores * orient
+
+            pc_names = [f"PC{i + 1}" for i in range(k)]
+            reach = int(np.searchsorted(cum[:k], 0.9) + 1)
+            comp = pd.DataFrame({"pc": np.arange(1, k + 1), "var": var[:k],
+                                 "ratio": ratio[:k], "cum": cum[:k]})
+            var_tip = [alt.Tooltip("pc:O", title="Component"),
+                       alt.Tooltip("ratio:Q", title="This component",
+                                   format=".1%"),
+                       alt.Tooltip("cum:Q", title="Running total", format=".1%")]
+            pc_x = alt.X("pc:O", title="Component", axis=alt.Axis(labelAngle=0))
+            # Both layers carry the same axis spec: Vega-Lite merges a layer's
+            # scales either way, and a bare alt.Y("ratio:Q") would leave the
+            # merged axis titled "ratio, cum". The title is short because a
+            # longer one is clipped against the height of the chart.
+            pct = dict(scale=alt.Scale(domain=[0, 1]), axis=alt.Axis(format="%"),
+                       title="Share of the variance")
+            bar_y, pc_y = alt.Y("ratio:Q", **pct), alt.Y("cum:Q", **pct)
+            mark90 = pd.DataFrame({"pc": [1], "cum": [0.9], "t": ["90%"]})
+            tail = comp.tail(1).assign(t="running total")
+
+            vc, lc = st.columns(2)
+            vc.altair_chart(alt.layer(
+                alt.Chart(comp).mark_bar(fill=P["match"]).encode(
+                    x=pc_x, y=bar_y, tooltip=var_tip),
+                alt.Chart(comp).mark_text(dy=-8, fontSize=11,
+                                          color=P["muted"]).encode(
+                    x=pc_x, y=bar_y, text=alt.Text("ratio:Q", format=".0%")),
+                alt.Chart(mark90).mark_rule(color=P["axis"],
+                                            strokeDash=[4, 4]).encode(y=pc_y),
+                alt.Chart(mark90).mark_text(align="left", dy=-7, fontSize=11,
+                                            color=P["muted"]).encode(
+                    x=pc_x, y=pc_y, text="t:N"),
+                alt.Chart(comp).mark_line(color=P["no_match"], strokeWidth=2,
+                                          point=alt.OverlayMarkDef(
+                                              fill=P["no_match"], size=45)).encode(
+                    x=pc_x, y=pc_y, tooltip=var_tip),
+                alt.Chart(tail).mark_text(align="right", dy=-14, fontSize=11,
+                                          color=P["no_match"]).encode(
+                    x=pc_x, y=pc_y, text="t:N"),
+            ).properties(height=280), width="stretch")
+            vc.caption(
+                "Each bar is what one component accounts for; the line is the "
+                "running total. "
+                + (f"Two townships differ in one direction only, and it holds "
+                   "everything. " if k == 1 else
+                   f"The first component carries {ratio[0]:.0%} of the variance "
+                   f"between these {N} townships, "
+                   + ("it alone passes " if reach == 1
+                      else f"the first {reach} pass ") + "90%, and "
+                   + f"{k} account for all of it. ")
+                + "A profile is ten numbers, but it is not ten independent ones."
+            )
+
+            # Three is what the palette has distinct colors for, and past the
+            # third the components here are worth less than a bin's rounding.
+            pcs = min(3, k)
+            edge_labels = [compact_dollars(e) for e in edges[:nb]]
+            edge_labels[-1] += "+"
+            load = pd.DataFrame({
+                "pc": np.repeat(np.arange(1, pcs + 1), nb),
+                "bin": np.tile(np.arange(nb), pcs),
+                "loading": Vt[:pcs].ravel()})
+            load["edge"] = load["bin"].map(dict(enumerate(edge_labels)))
+            load["range"] = load["bin"].map(dict(enumerate(ranges)))
+            series = [f"PC{i + 1} · {ratio[i]:.0%}" for i in range(pcs)]
+            load["name"] = load["pc"].map(dict(enumerate(series, 1)))
+            lc.altair_chart(alt.layer(
+                alt.Chart(pd.DataFrame({"y": [0]})).mark_rule(
+                    color=P["axis"]).encode(y=alt.Y("y:Q", title=None)),
+                alt.Chart(load).mark_line(
+                    strokeWidth=2, point=alt.OverlayMarkDef(size=45)).encode(
+                    x=alt.X("edge:N", sort=edge_labels, title="Value bin",
+                            axis=alt.Axis(labelAngle=-45)),
+                    y=alt.Y("loading:Q", title="Weight on the bin"),
+                    color=alt.Color("name:N", title=None, sort=series,
+                                    scale=alt.Scale(domain=series,
+                                                    range=P["series"][:pcs])),
+                    tooltip=[alt.Tooltip("name:N", title="Component"),
+                             alt.Tooltip("range:N", title="Value"),
+                             alt.Tooltip("loading:Q", title="Weight",
+                                         format=".2f")]),
+            ).properties(height=280), width="stretch")
+            named = ["first", "second", "third"]
+            # Townships that all share a median have no correlation to report
+            # -- corrcoef says so with NaN, and the sentence is dropped.
+            with np.errstate(invalid="ignore", divide="ignore"):
+                r_med = [(named[i], float(np.corrcoef(scores[:, i],
+                                                      prof["med"])[0, 1]))
+                         for i in range(pcs)]
+            r_med = [(name, r) for name, r in r_med if np.isfinite(r)]
+            lc.caption(
+                "What each component is made of: the weight it puts on every "
+                "value bin. A township's score is those weights run over its "
+                "own ten shares, so a component with one sign at the cheap end "
+                "and the other at the dear end is an axis from one to the "
+                "other."
+                + (" Against the township's median value, "
+                   + ", ".join(f"the {name} runs r = {r:+.2f}"
+                               for name, r in r_med) + "." if r_med else "")
+            )
+
+            # Two townships have one component between them, and no plane to
+            # scatter them on.
+            if k >= 2:
+                pts = pd.DataFrame({
+                    "name": labels, "x": scores[:, 0], "y": scores[:, 1],
+                    "n": total.astype(int), "med": prof["med"].to_numpy()}
+                ).sort_values("y").reset_index(drop=True)
+                # Vega has no label layout, so two townships at the same height
+                # print their names over each other. Walk up the y order and
+                # lift any label that would land on one already placed; the dot
+                # stays where it belongs and only the text moves.
+                span_x = (pts["x"].max() - pts["x"].min()) or 1.0
+                span_y = (pts["y"].max() - pts["y"].min()) or 1.0
+                ty = pts["y"].to_numpy(dtype=float).copy()
+                for i in range(1, len(ty)):
+                    for j in range(i):
+                        if (abs(pts.at[i, "x"] - pts.at[j, "x"]) < 0.15 * span_x
+                                and abs(ty[i] - ty[j]) < 0.04 * span_y):
+                            ty[i] = ty[j] + 0.04 * span_y
+                pts["ty"] = ty
+                pt_tip = [alt.Tooltip("name:N", title="Township"),
+                          alt.Tooltip("n:Q", title="Priced parcels", format=","),
+                          alt.Tooltip("med:Q", title="Median value",
+                                      format="$,.0f"),
+                          alt.Tooltip("x:Q", title="PC1", format=".3f"),
+                          alt.Tooltip("y:Q", title="PC2", format=".3f")]
+                sx = alt.X("x:Q", title=f"PC1 · {ratio[0]:.0%} of the variance")
+                # Same title on both y encodings: a layer's scales are merged,
+                # and two different ones would be drawn as "y, ty".
+                sy = alt.Y("y:Q", title=f"PC2 · {ratio[1]:.0%}")
+                sty = alt.Y("ty:Q", title=f"PC2 · {ratio[1]:.0%}")
+                st.altair_chart(alt.layer(
+                    alt.Chart(pd.DataFrame({"v": [0]})).mark_rule(
+                        color=P["grid"]).encode(x=alt.X("v:Q", title=None)),
+                    alt.Chart(pd.DataFrame({"v": [0]})).mark_rule(
+                        color=P["grid"]).encode(y=alt.Y("v:Q", title=None)),
+                    alt.Chart(pts).mark_circle(
+                        color=P["match"], opacity=0.85).encode(
+                        x=sx, y=sy, tooltip=pt_tip,
+                        size=alt.Size("n:Q", title="Priced parcels",
+                                      scale=alt.Scale(range=[40, 500]),
+                                      # format="," renders as "5e+3" in this
+                                      # Vega build, as on an axis.
+                                      legend=alt.Legend(
+                                          orient="top",
+                                          labelExpr="format(datum.value, ',d')"))),
+                    # A label on a township out at the right runs off the
+                    # plotting area, so those hang to the left of their dot
+                    # instead. Two layers rather than a conditional: the
+                    # alignment and the offset have to flip together.
+                    *[alt.Chart(part).mark_text(
+                        align="right" if flip else "left", dx=-9 if flip else 9,
+                        fontSize=11, color=P["ink2"]).encode(
+                        x=sx, y=sty, text="name:N", tooltip=pt_tip)
+                      for flip, part in pts.groupby(
+                          pts["x"] > pts["x"].min()
+                          + 0.72 * (pts["x"].max() - pts["x"].min()))],
+                ).properties(height=440), width="stretch")
+                st.caption(
+                    "Every township at its score on the first two components, "
+                    f"which between them hold {cum[1]:.0%} of the variance. "
+                    "Near neighbours here have profiles of the same shape; the "
+                    "axes are shares, so a township a tenth of the way along "
+                    "PC1 has about a tenth of its parcels shifted the way that "
+                    "component runs. Dot size is the parcels behind the "
+                    f"profile — at the minimum of {min_n} a township is ten "
+                    "small counts, and small counts move a long way on their "
+                    "own."
+                )
+
+            # Three tables in a row, so each expander says which is which
+            # rather than three identical "Show the numbers".
+            table_view(pd.DataFrame({
+                "Component": pc_names, "Variance": var[:k].round(6),
+                "Share of total": ratio[:k].round(4),
+                "Running total": cum[:k].round(4)}), "Component variance",
+                label="Show the variance behind the bars")
+
+            loadings = pd.DataFrame(np.round(Vt[:k].T, 4), columns=pc_names)
+            loadings.insert(0, "Value", ranges)
+            table_view(loadings, "Component loadings",
+                       label="Show every component's weights")
+
+            comp_scores = pd.DataFrame(np.round(scores[:, :k], 4),
+                                       columns=pc_names)
+            comp_scores.insert(0, "Township", labels)
+            comp_scores.insert(1, "Township X", prof["cx"].to_numpy())
+            comp_scores.insert(2, "Township Y", prof["cy"].to_numpy())
+            comp_scores.insert(3, "Priced parcels", total.astype(int))
+            comp_scores.insert(4, "Median value", prof["med"].round(0).to_numpy())
+            table_view(comp_scores, "Township components",
+                       label="Show each township's scores")
+
 st.divider()
 
 # --- 3. reason mix ---------------------------------------------------------
