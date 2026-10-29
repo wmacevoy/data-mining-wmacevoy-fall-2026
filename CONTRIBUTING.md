@@ -97,7 +97,7 @@ from inside its folder, and the root `pixi run` does not reach it.
 | AGENTS.md says                 | In this repository                                                        |
 | ------------------------------ | ------------------------------------------------------------------------- |
 | the repository guide           | `CONTRIBUTING.md`                                                         |
-| the queue                      | none yet                                                                  |
+| the queue                      | `QUEUE.md`, at the root                                                   |
 | findings                       | `FINDINGS.md`, at the root                                                |
 | the check command              | `pixi run -e colorado-river lint && pixi run -e colorado-river test`; success prints `2 passed` |
 | the handoff check              | `.claude/settings.json`: `python3 se.py --post` at start, resume, compact |
