@@ -1,10 +1,21 @@
 name: CI
 
+# CI checks colorado_river only: `pixi run lint` and `pixi run test` use the
+# default environment, which is that project. It runs when the project changes,
+# or when the manifest or this file does, since either can break it.
 on:
   push:
     branches: [main]
+    paths:
+      - "colorado_river/**"
+      - "pixi.toml"
+      - ".github/workflows/ci.yaml"
   pull_request:
     branches: [main]
+    paths:
+      - "colorado_river/**"
+      - "pixi.toml"
+      - ".github/workflows/ci.yaml"
 
 # Cancel an in-flight run when new commits land on the same branch.
 concurrency:
