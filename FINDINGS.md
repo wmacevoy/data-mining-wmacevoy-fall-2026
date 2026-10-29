@@ -116,8 +116,10 @@ names the rule or doctor row it concerns, so it can be sent back to SE1 and DM1 
   the line was left true rather than reworded to satisfy it.
 - **Findable by:** a fixture: `**The holdout:** none, in any project. \`ml\` scores every run on its
   test split.` should give *none yet*, not a failure.
-- **Changed:** none yet; for DM1 (`dm.py`, `check_holdout`): a line that says *none* is a true
-  *none yet*, and a backtick is a path only if it looks like one where the holdout could live.
+- **Changed:** fixed in DM1 (`b6532cb` on its branch `field-report-1`, with a test): a plan or
+  CONTRIBUTING holdout line that starts with *none* gives *none yet*, unless a tracked file is named
+  holdout. `dm.py` re-copied; the row now reads "CONTRIBUTING.md says there is none". Still open:
+  a backtick that is a command (`make split`) on a line that does name a path is read as a path.
 
 ## 2026-10-29 — DM1 doctor: `field()` never reads a wrapped line
 
@@ -132,8 +134,10 @@ names the rule or doctor row it concerns, so it can be sent back to SE1 and DM1 
 - **Cost:** a row that says *none yet* where the truth is a failure; found only because the row
   disagreed with the file.
 - **Findable by:** that one-line fixture, as a test in DM1.
-- **Changed:** none yet; for DM1 (`dm.py`, `field`): start the continuation loop after the matched
-  line. The copy here stays unedited.
+- **Changed:** fixed in DM1 (`d0cd786` on its branch `field-report-1`, with a test that wraps the
+  fixture's raw line). `dm.py` re-copied, unedited; the row now fails, truly: "80 of 80 files under
+  `primary-residence-mesa-county/cache/raw/` are writable". Making them read-only waits for that
+  project's migration, since `fetch` writes there.
 
 ## 2026-10-29 — DM1's CONTRIBUTING template assumes one project, one command, one line
 
