@@ -34,7 +34,7 @@ commands are in [README.md](README.md).
   and no golden output: none yet. The same commands CI runs, on Ubuntu, macOS and Windows, when
   `colorado_river/`, `pixi.toml`, or the workflow changes
   ([DM1/O2](https://github.com/wmacevoy/data-mining/blob/main/guide/07-operating.md#o2)).
-- **Success prints:** `All checks passed!` from ruff, then `2 passed` from pytest.
+- **Success prints:** `All checks passed!` from ruff, then `4 passed` from pytest.
 - **The doctor:** `./dm --doctor` — SE1's rows and this guide's: both agreements loaded, the
   question's one-way doors, the holdout's reach, every column's knowable-at, raw read-only, the
   ledger's writer; *none yet* is a true answer
@@ -99,6 +99,6 @@ from inside its folder, and the root `pixi run` does not reach it.
 | the repository guide           | `CONTRIBUTING.md`                                                         |
 | the queue                      | `QUEUE.md`, at the root                                                   |
 | findings                       | `FINDINGS.md`, at the root                                                |
-| the check command              | `pixi run -e colorado-river lint && pixi run -e colorado-river test`; success prints `2 passed` |
+| the check command              | `pixi run -e colorado-river lint && pixi run -e colorado-river test`; success prints `4 passed` |
 | the handoff check              | `.claude/settings.json`: `python3 se.py --post` at start, resume, compact |
 | `Non-goals`, `Scope decisions` | none yet                                                                  |

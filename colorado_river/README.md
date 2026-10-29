@@ -25,6 +25,7 @@ Then click the `Local URL:` that Streamlit prints. See the
 | `pixi run app` | Launch the dashboard |
 | `pixi run meta` | List USGS gauges (`--mode config` for just the configured ones) |
 | `pixi run px` | Parquet explorer — inspect the cache from the CLI |
+| `pixi run profile` | Pull raw USGS JSON into `debug/raw/` and print what the app drops: qualifiers, sentinels, gaps |
 | `pixi run test` | Run the tests |
 | `pixi run lint` | Check code style |
 | `pixi run clean` | Delete `data/` and `debug/` |
@@ -47,6 +48,7 @@ pixi run meta --format json --state CO --state UT
 | `eda.py` | Timezone handling, resampling, daily features, rolling anomalies |
 | `px.py` | Parquet explorer (CLI) |
 | `meta.py` | Lists USGS sources |
+| `profile_raw.py` | Profiles a raw USGS pull; backs the datasheets in `docs/datasheets/` |
 | `config.json` | Gauge catalog and the `debug` flag |
 | `.streamlit/config.toml` | Streamlit settings — **tracked on purpose**, see below |
 | `pytest.ini` | Puts this folder on the import path for tests |

@@ -30,7 +30,9 @@ source. After Gebru et al., *Datasheets for Datasets*, cut to what the guide's p
   saved outside the repository; lines marked *(measured)* are from that pull, the rest from
   `usgs.py` or *(inferred)*. **What would show it wrong:** a profile of a raw pull — per series, the
   qualifiers, `noDataValue`, the step between readings, the UTC offset, and the newest reading's
-  lag. It last ran 2026-10-29; it is not in the repository yet.
+  lag: `pixi run profile`, which pulls afresh and keeps the raw JSON in `debug/raw/`. Rerun later on
+  2026-10-29, it agreed with every *(measured)* line here except the lag, which moves with the
+  moment of the pull.
 
 ## People
 
@@ -47,7 +49,7 @@ The column names are the cache's; the raw field is in *Meaning*.
 
 | Column | Meaning | Units / clock | Sentinels and defaults | Knowable at | Absent / late / wrong / lying |
 | ------ | ------- | ------------- | ---------------------- | ----------- | ----------------------------- |
-| time | the reading's time (`dateTime`), the index | served as local time with offset (`-06:00` in this pull); parsed and stored as UTC | none seen | the reading itself: time + 21 to 66 minutes for the newest reading *(measured 2026-10-29)* | every 15 minutes; one 45-minute step, in 09095500's temperature *(measured)*; after `to_local` in the app it is naive Denver time, where DST makes gaps that did not happen (a lesson) |
+| time | the reading's time (`dateTime`), the index | served as local time with offset (`-06:00` in this pull); parsed and stored as UTC | none seen | the reading itself: time + 17 to 66 minutes for the newest reading, across two pulls *(measured 2026-10-29)* | every 15 minutes; one 45-minute step, in 09095500's temperature *(measured)*; after `to_local` in the app it is naive Denver time, where DST makes gaps that did not happen (a lesson) |
 | discharge_cfs | streamflow, parameter `00060` | ft³/s | `noDataValue` −999999.0, kept as a number if served; none seen | provisional at time + under an hour; approved months later, possibly changed | all three gauges serve it; empty string becomes null |
 | stage_ft | gage height, parameter `00065` | ft | as above | as above | all three gauges serve it |
 | water_temp_c | water temperature, parameter `00010` | °C | as above | as above | all three gauges serve it as IV; at 09095500, 2 fewer readings than discharge in this pull *(measured)* |

@@ -33,8 +33,9 @@ source. After Gebru et al., *Datasheets for Datasets*, cut to what the guide's p
 - **This sheet:** written by Claude Opus 5.5 on 2026-10-29 from a raw pull of all three gauges,
   saved outside the repository; lines marked *(measured)* are from that pull, the rest from
   `usgs.py` or *(inferred)*. **What would show it wrong:** a profile of a raw pull — per series, the
-  qualifiers and where `P` begins, the `noDataValue`, missing days, and the newest day's lag. It
-  last ran 2026-10-29; it is not in the repository yet.
+  qualifiers and where `P` begins, the `noDataValue`, missing days, and the newest day's lag:
+  `pixi run profile`, which pulls afresh and keeps the raw JSON in `debug/raw/`. Rerun later on
+  2026-10-29, it agreed with every *(measured)* line here.
 
 ## People
 
