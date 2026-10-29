@@ -63,6 +63,9 @@ watchdog = ">=4"          # lets Streamlit hot-reload on file save
 app = { cmd = "streamlit run app.py", cwd = "colorado_river" }
 px = { cmd = "python px.py", cwd = "colorado_river" }
 meta = { cmd = "python meta.py", cwd = "colorado_river" }
+# profile_raw.py, not profile.py: that name would shadow the standard library's
+# `profile` module for anything run from colorado_river/.
+profile = { cmd = "python profile_raw.py", cwd = "colorado_river" }
 test = { cmd = "pytest -q", cwd = "colorado_river" }
 lint = { cmd = "ruff check .", cwd = "colorado_river" }
 
