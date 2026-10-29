@@ -1,0 +1,18 @@
+#!/bin/sh
+# se: runs se.py with the repository's own Python when it has one, so the doctor and the self test run
+# on the interpreter the repository pins, not a stray one. Order: an active conda environment, a pixi
+# environment, pixi's runner if a manifest names one, then python3, then python. se.py prints which.
+here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+if [ -n "$CONDA_PREFIX" ] && [ -x "$CONDA_PREFIX/bin/python" ]; then
+  exec "$CONDA_PREFIX/bin/python" "$here/se.py" "$@"
+elif [ -x "$here/.pixi/envs/default/bin/python" ]; then
+  exec "$here/.pixi/envs/default/bin/python" "$here/se.py" "$@"
+elif [ -f "$here/pixi.toml" ] && command -v pixi >/dev/null 2>&1; then
+  exec pixi run --manifest-path "$here/pixi.toml" python "$here/se.py" "$@"
+elif command -v python3 >/dev/null 2>&1; then
+  exec python3 "$here/se.py" "$@"
+elif command -v python >/dev/null 2>&1; then
+  exec python "$here/se.py" "$@"
+fi
+echo "se: no python found; install Python 3.9 or later" >&2
+exit 2
