@@ -11,8 +11,11 @@ commands are in [README.md](README.md).
 ## Run it
 
 - **Prerequisites:** [pixi](https://pixi.prefix.dev) (README section 1); `pixi install` at the
-  root. Every root task runs from the root, whatever the current directory.
-- **Raw to report:** `pixi run clean && pixi run app` — for `colorado_river`, the dashboard is the
+  root. Every root task runs from the root, whatever the current directory. Name the environment
+  (`-e`) for any task more than one project has (`app`, `test`, `lint`, `clean`): pixi refuses the
+  bare name as ambiguous.
+- **Raw to report:** `pixi run -e colorado-river clean && pixi run -e colorado-river app` — for
+  `colorado_river`, the dashboard is the
   report: `clean` empties the cache, so every number on screen comes from a new USGS pull. It is
   interactive; no command writes a report. Not timed at full size. USGS revises provisional values,
   so a later rerun can show different numbers, and nothing records which pull a number came from.
@@ -20,12 +23,13 @@ commands are in [README.md](README.md).
 - **Fetch / refresh raw data:** `colorado_river` has no fetch task. The app fetches on a cache miss
   (`load_or_fetch_*` in `usgs.py`) and then keeps the cache forever; to refresh, reset. It records
   nothing about the pull: no URL, no fetch time, no revision status.
-- **Reset derived data:** `pixi run clean` — deletes `colorado_river/data/` and
+- **Reset derived data:** `pixi run -e colorado-river clean` — deletes `colorado_river/data/` and
   `colorado_river/debug/`. Each project's `clean` is under [Projects](#projects).
 
 ## Check it
 
-- **The full check:** `pixi run lint && pixi run test` — for `colorado_river` only: ruff, then the
+- **The full check:** `pixi run -e colorado-river lint && pixi run -e colorado-river test` — for
+  `colorado_river` only: ruff, then the
   unit tests in `colorado_river/tests/`. There is no fixture through every stage, no property test,
   and no golden output: none yet. The same commands CI runs, on Ubuntu, macOS and Windows, when
   `colorado_river/`, `pixi.toml`, or the workflow changes
@@ -49,7 +53,7 @@ commands are in [README.md](README.md).
 
 | Project                         | Run with                         | Raw, and from where                                                                                                 | Raw to report                                     | Check, not in CI                                 | Reset                        |
 | ------------------------------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- | ------------------------------------------------ | ---------------------------- |
-| `colorado_river`                | `pixi run <task>` (default)      | none kept: USGS Water Services is the authority; `data/` is a cache                                                 | `clean`, then `app`                               | (CI runs it)                                     | `clean`                      |
+| `colorado_river`                | `pixi run -e colorado-river <task>` | none kept: USGS Water Services is the authority; `data/` is a cache                                                 | `clean`, then `app`                               | (CI runs it)                                     | `clean`                      |
 | `occupancy_explorer`            | `pixi run -e occupancy <task>`   | none kept: the occupancy GraphQL API is the authority; `data/events.parquet` is a cache that fetches only new rows | `sync`, then `app`                                | `lint`, `test`                                   | `clean`                      |
 | `primary-residence-mesa-county` | `pixi run <task>` in its folder  | `cache/raw/*.json`, a snapshot of Mesa County's ArcGIS parcel service, git-ignored                                 | `all` (fetch, then build to `out/`), then `app`   | `test` (no lint task)                            | none: no `clean` task        |
 | `ml`                            | `pixi run -e ml <task>`          | MNIST, downloaded by `data` into `data/`                                                                            | `data`, `train`, then `app`; `export` for ONNX    | `lint`, `test`                                   | `clean` (`data/`, `runs/`)   |
@@ -95,6 +99,6 @@ from inside its folder, and the root `pixi run` does not reach it.
 | the repository guide           | `CONTRIBUTING.md`                                                         |
 | the queue                      | none yet                                                                  |
 | findings                       | `FINDINGS.md`, at the root                                                |
-| the check command              | `pixi run lint && pixi run test`; success prints `2 passed`               |
+| the check command              | `pixi run -e colorado-river lint && pixi run -e colorado-river test`; success prints `2 passed` |
 | the handoff check              | `.claude/settings.json`: `python3 se.py --post` at start, resume, compact |
 | `Non-goals`, `Scope decisions` | none yet                                                                  |

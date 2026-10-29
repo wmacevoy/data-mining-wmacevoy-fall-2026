@@ -1,8 +1,9 @@
 name: CI
 
-# CI checks colorado_river only: `pixi run lint` and `pixi run test` use the
-# default environment, which is that project. It runs when the project changes,
-# or when the manifest or this file does, since either can break it.
+# CI checks colorado_river only. The environment is named because every project
+# has `lint` and `test` tasks, and pixi refuses a bare `pixi run lint` as
+# ambiguous. It runs when the project changes, or when the manifest or this file
+# does, since either can break it.
 on:
   push:
     branches: [main]
@@ -47,7 +48,7 @@ jobs:
         uses: prefix-dev/setup-pixi@v0.10.1
 
       - name: Lint
-        run: pixi run lint
+        run: pixi run -e colorado-river lint
 
       - name: Tests
-        run: pixi run test
+        run: pixi run -e colorado-river test

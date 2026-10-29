@@ -168,3 +168,25 @@ names the rule or doctor row it concerns, so it can be sent back to SE1 and DM1 
 - **Findable by:** `find primary-residence-mesa-county/cache/raw -type f -perm -u+w`.
 - **Changed:** recorded in `CONTRIBUTING.md`; whether to make it read-only is Warren's call, with
   that project's migration (step 4).
+
+## 2026-10-29 — CI has not passed since 2026-08-18; the full check written in step 2 did not run
+
+- **What happened:** `pixi run lint` and `pixi run test` stop with "the task 'lint' is ambiguous":
+  every project defines `lint`, `test`, `app`, and `clean`, and pixi 0.76.2 will not pick the
+  default environment for a name more than one environment has. CI runs exactly those commands, and
+  has failed on all three platforms on every push since 2026-10-15 (three runs); the run before,
+  2026-08-20, failed on a cache-key error; the last success was 2026-08-18. Step 2 wrote the
+  same bare commands into `CONTRIBUTING.md` as the full check, and both doctors passed it, because
+  they compare text and do not run it. The baseline had run them with `-e default`, so it never saw
+  the failure. The README's everyday commands (`pixi run app`, `test`, `lint`, `clean`) fail the
+  same way for a student; `px` and `meta`, defined once, still work.
+- **Kind:** K3 (a check passed in the doctor and in this file, and could not run)
+- **Cost:** two and a half months of red CI that read, in the handoff and here, as "CI runs lint and
+  tests on three platforms"; one commit of `CONTRIBUTING.md` that was false.
+- **Findable by:** running the full check exactly as written, bare, before writing it down
+  ([SE1/A2](https://github.com/wmacevoy/software-engineering/blob/v1.3/guide/10-agents.md#a2)); `gh
+  run list --workflow CI`. For SE1 and DM1: a doctor that passes a check command it never ran says
+  *configured*, not *pass*, as its hook row already does.
+- **Changed:** CI and `CONTRIBUTING.md` name the environment: `pixi run -e colorado-river lint &&
+  pixi run -e colorado-river test`, which passes here (ruff clean, 2 passed). The README and
+  `colorado_river/README.md` still give the bare commands: Warren's call, since students read them.
