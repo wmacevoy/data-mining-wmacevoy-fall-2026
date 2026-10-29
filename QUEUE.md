@@ -1,7 +1,7 @@
 # Queue
 
 The migration to SE1 and DM1 that `HANDOFF-migrate-to-DM1.md` sets out, on branch `adopt-se1-dm1`
-(not pushed). Steps 0 to 3 are done; what is left is below. An agent may move an item to *review*;
+(PR #1). Steps 0 to 3 are done; what is left is below. An agent may move an item to *review*;
 only Warren marks one *done*. Written 2026-10-29, when the session was closed for later.
 
 ## Before resuming
@@ -30,7 +30,7 @@ only Warren marks one *done*. Written 2026-10-29, when the session was closed fo
 | W6  | `DATA-SCIENCE.md`: stays as the course's text, or becomes a pointer at DM1 | handoff step 0 | blocked |
 | W7  | Merge `../data-mining` branch `field-report-1` (`d0cd786`, `b6532cb`: the doctor's wrapped-line and holdout-none fixes, with tests; `dm.py` here is already the copy) | `../data-mining` | review |
 | W8  | Should DM1's doctor look in `<project>/docs/`? A design decision for DM1 | FINDINGS, last entry | blocked |
-| W9  | Push `adopt-se1-dm1` and open a PR; CI runs the fixed commands only then | this branch | blocked |
+| W9  | Pushed; PR [#1](https://github.com/wmacevoy/data-mining-wmacevoy-fall-2026/pull/1) is open: review it, and read its CI run, the first with the fixed commands | this branch | review |
 | W10 | Parcels `cache/raw/` is writable and `fetch` writes there: make it read-only after a fetch, or record why not | `CONTRIBUTING.md`, *Data rules* | blocked |
 | W11 | Parcels rows name owners and mailing addresses: what may leave this machine, and what may be published | `CONTRIBUTING.md`, *Data rules* | blocked |
 
