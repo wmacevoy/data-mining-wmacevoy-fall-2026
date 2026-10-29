@@ -190,3 +190,58 @@ names the rule or doctor row it concerns, so it can be sent back to SE1 and DM1 
 - **Changed:** CI and `CONTRIBUTING.md` name the environment: `pixi run -e colorado-river lint &&
   pixi run -e colorado-river test`, which passes here (ruff clean, 2 passed). The README and
   `colorado_river/README.md` still give the bare commands: Warren's call, since students read them.
+
+## 2026-10-29 — Step 3: colorado_river's QUESTION, PLAN, and datasheets; what the templates cost
+
+- **What happened:** wrote `colorado_river/docs/QUESTION_v1.md`, `PLAN_v1.md`, and
+  `datasheets/usgs-iv.md` and `usgs-dv.md`, from Warren's account (the question was "explore an
+  ingress data set with local interest and demonstrate the beginning of a data pipeline") and a raw
+  pull of all three gauges, kept outside the repository. The project is descriptive and teaches;
+  DM1's question and plan are shaped for a prediction. Not applicable, and said so: PRED-1's
+  prediction point, the price of errors as false positive and negative (kept: it fit the lessons
+  well), the split, the holdout, the baseline, the interval, the search budget, labels, the ledger.
+  BIAS-1 is *none*, because no row is about a person — but the bias table's *Measurement* row is
+  where the provisional and estimated values surfaced, so it earned its place.
+- **Kind:** K2
+- **Cost:** about half the question and plan say *not applicable*. That is cheap to write and cheap
+  to read, and it is now on record why.
+- **Findable by:** the handoff's step 4 question for `ml`, asked here too: does DM1's QUESTION fit a
+  teaching pipeline? It fits with a *Decision* about the course, not the data.
+- **Changed:** none yet; for DM1: a descriptive or teaching project is a named case in the
+  templates (the decision is who uses the result; PRED-1 becomes "what is knowable at a fetch").
+
+## 2026-10-29 — The datasheet's *Knowable at* found what the lesson table does not list
+
+- **What happened:** looking at the raw data before writing columns (DM1 AGENTS.md, *Before you
+  start*) found, on 2026-10-29: none of the three gauges serves salinity, and only the state-line
+  gauge serves daily water temperature, and the app omits both sections without saying why; every
+  IV reading in a 7-day pull is provisional, and every DV series is provisional after one date
+  (2025-11-12 to 2026-06-02 by series); 62 to 93 days per gauge in 5 years are estimated, mostly
+  winter; the pipeline drops the qualifier that says which, and does not handle USGS's
+  `noDataValue` (−999999.0), none of which appeared; and USGS retires WaterServices in the first
+  quarter of 2027, with degradation possible from August 2026 (USGS water data blog, updated
+  2026-10-17), so the reference project's source ends during the spring semester.
+- **Kind:** K2, and for the source's end, a K3 waiting to happen
+- **Cost:** none yet. Nothing was fixed: the qualifier and cache problems are the listed lessons,
+  and the `noDataValue`, the silent omissions, and the migration are Warren's to decide.
+- **Findable by:** DM1/R6's column, filled from a profile of raw data, not from the code.
+- **Changed:** recorded in the datasheets' *Known problems* and the question's *Not for* and *Not
+  yet answered*.
+
+## 2026-10-29 — DM1 doctor: a project's working set in `<project>/docs/` is invisible
+
+- **What happened:** from the root, the doctor reports *none yet* for question, plan, and
+  datasheets. It reads `docs/QUESTION_vN` and `docs/PLAN_vN` only, and finds datasheets only as
+  `docs/datasheets/*.md` at the root or a file named `datasheet*`. Run on the project as the
+  repository (`./dm --doctor --repo colorado_river`): the question passes (5 IDs, bias measure set,
+  *Not for* present, every citation versioned), the datasheets pass (2 sheets, 11 columns, each
+  with *Knowable at*), the holdout reads *none yet*, the plan warns "baseline not yet scored on a
+  date", which is wrong for a plan that says nothing is scored, and the agreement row fails, rightly
+  for that root.
+- **Kind:** K2 (expected: the handoff predicted it)
+- **Cost:** the doctor checks the root, where there is nothing, and not the project, where there is.
+- **Findable by:** the fixture: this repository, with `colorado_river/docs/` and the agreements at
+  the root.
+- **Changed:** none yet; for DM1: either the doctor learns `<project>/docs/` (one row per project),
+  or the guide says one project per doctor run with `--repo`, and the agreement rows look upward;
+  and the plan row takes *not applicable* for a baseline.
