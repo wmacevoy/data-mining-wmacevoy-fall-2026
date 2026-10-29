@@ -102,3 +102,65 @@ names the rule or doctor row it concerns, so it can be sent back to SE1 and DM1 
 - **Findable by:** `docs/_config.yml`.
 - **Changed:** the decision above. For DM1: its templates and doctor assume one project per
   repository and a private `docs/`; the doctor will not find `<project>/docs/QUESTION_v1.md` yet.
+
+## 2026-10-29 — Step 2: CONTRIBUTING.md written; the doctors went from 0 failed to 1, wrongly
+
+- **What happened:** with `CONTRIBUTING.md` from DM1's template, SE1's *repository guide* and *CI*
+  rows pass (`pixi run lint && pixi run test`, both run by the workflow), and DM1's *raw to report*
+  passes. DM1's *holdout* row fails: "ml: tracked by git, so in every clone and every agent's reach;
+  llm: …". The line it read says there is no holdout, and names `ml` and `llm` in backticks as the
+  projects whose test sets are not holdouts; the doctor took every backtick on the line as a path
+  to the holdout, and the project directories are tracked.
+- **Kind:** K3 (the doctor was sure, and wrong)
+- **Cost:** a false failure in every session from here on, until the doctor or the line changes;
+  the line was left true rather than reworded to satisfy it.
+- **Findable by:** a fixture: `**The holdout:** none, in any project. \`ml\` scores every run on its
+  test split.` should give *none yet*, not a failure.
+- **Changed:** none yet; for DM1 (`dm.py`, `check_holdout`): a line that says *none* is a true
+  *none yet*, and a backtick is a path only if it looks like one where the holdout could live.
+
+## 2026-10-29 — DM1 doctor: `field()` never reads a wrapped line
+
+- **What happened:** the *raw is read-only* row said "CONTRIBUTING.md's *Raw data* line names no
+  path", but the path is on the line's second, indented row. `field()` splits the text after the
+  match, and the first piece is the empty rest of the matched line, so the loop stops before any
+  continuation: `field('**A:** x\n  y\n', 'A')` returns `'x'`. Every field the doctor reads (raw,
+  holdout, raw to report, the datasheet's *This sheet*, the plan's fields) is cut at its first
+  line. Read correctly, the row would fail, and rightly: all 80 files under
+  `primary-residence-mesa-county/cache/raw/` are writable.
+- **Kind:** K3
+- **Cost:** a row that says *none yet* where the truth is a failure; found only because the row
+  disagreed with the file.
+- **Findable by:** that one-line fixture, as a test in DM1.
+- **Changed:** none yet; for DM1 (`dm.py`, `field`): start the continuation loop after the matched
+  line. The copy here stays unedited.
+
+## 2026-10-29 — DM1's CONTRIBUTING template assumes one project, one command, one line
+
+- **What happened:** the template has one *Raw to report*, one *Raw data*, one *Success prints*.
+  Here five projects each have their own, and the full check prints two lines (`All checks passed!`
+  from ruff, `2 passed` from pytest). The answer was a *Projects* table, with the bold lines about
+  `colorado_river`, the one CI checks. The template also has no way to say *none yet* where the
+  doctor parses a command: a *Raw to report* line with no backtick fails as an unfilled
+  placeholder (`check_raw_to_report`), read from the code, not run.
+- **Kind:** K2
+- **Cost:** a table the doctor cannot read, so for four of the five projects it checks nothing.
+- **Findable by:** the course shape itself: one root, several projects (the handoff's
+  *Found while surveying*).
+- **Changed:** none yet; for DM1: say what a multi-project repository does, and teach the doctor
+  `<project>/docs/` and a projects table, or say it reads one project.
+
+## 2026-10-29 — Raw is not read-only in the one project that keeps raw
+
+- **What happened:** `primary-residence-mesa-county/cache/raw/` is the only raw data in the
+  repository (80 JSON pages from the county's ArcGIS service), and every file is writable;
+  `fetch` writes there
+  ([DM1/D6](https://github.com/wmacevoy/data-mining/blob/main/guide/05-design.md#d6)). The three
+  other data projects keep caches that `clean` deletes and that are not raw: the remote service is
+  the authority, and USGS revises its provisional values. `colorado_river`'s cache records no
+  provenance, which is one of its lessons.
+- **Kind:** K2
+- **Cost:** none yet.
+- **Findable by:** `find primary-residence-mesa-county/cache/raw -type f -perm -u+w`.
+- **Changed:** recorded in `CONTRIBUTING.md`; whether to make it read-only is Warren's call, with
+  that project's migration (step 4).
